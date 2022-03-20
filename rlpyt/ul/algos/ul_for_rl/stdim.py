@@ -1,5 +1,3 @@
-
-
 import torch
 from collections import namedtuple
 import copy
@@ -156,7 +154,7 @@ class STDIM(BaseUlAlgorithm):
         c_anchor, anchor_conv_out, anchor_conv_layers = self.encoder(anchor)
 
         labels = torch.arange(c_anchor.shape[0],   # batch size
-            dtype=torch.long, device=self.device)
+                              dtype=torch.long, device=self.device)
         valid = valid_from_done(samples.done).type(torch.bool)
         valid = valid[self.delta_T:].reshape(-1)
         labels[~valid] = IGNORE_INDEX

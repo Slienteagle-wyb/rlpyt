@@ -1,5 +1,4 @@
 from enum import Enum
-
 from rlpyt.utils.logging.tabulate import tabulate
 from rlpyt.utils.logging.console import mkdir_p, colorize
 from rlpyt.utils.logging.autoargs import get_all_parameters
@@ -9,9 +8,7 @@ import os
 import os.path as osp
 import sys
 import datetime
-# import dateutil.tz
 import csv
-# import joblib
 import json
 import pickle
 import base64
@@ -33,9 +30,9 @@ _tabular_fds = {}  # key: file_name, value: open file
 _tabular_fds_hold = {}
 _tabular_header_written = set()
 
-_snapshot_dir = None
+_snapshot_dir = f'/home/yibo/Downloads/buffer'
 _snapshot_mode = 'all'
-_snapshot_gap = 1
+_snapshot_gap = int(5e4)  # gap * self.log_interval_updates
 
 _log_tabular_only = False
 _header_printed = False

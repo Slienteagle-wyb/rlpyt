@@ -114,7 +114,7 @@ def safety_gym_make(*args, sometimes_info_kwargs=None, obs_prev_cost=True,
     assert obs_version in ["default", "vision", "vision_only", "no_lidar",
         "no_constraints"]
     if obs_version != "default":
-        eid = kwargs["id"]  # Must provide as kwarg, not arg.
+        eid = kwargs["id"]  # Must provide as kwarg, not sched_kwargs
         names = dict(  # Map to my modification in safety-gym suite.
             vision="Vision",
             vision_only="Visonly",

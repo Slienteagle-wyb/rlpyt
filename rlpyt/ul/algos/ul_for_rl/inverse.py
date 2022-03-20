@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from collections import namedtuple
 
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
-from rlpyt.ul.models.inv_models import InverseModel
+from rlpyt.ul.models.ul.inverse_models import InverseModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.ul_for_rl_replay import UlForRlReplayBuffer

@@ -1,8 +1,6 @@
-
 import sys
 import copy
 import os.path as osp
-
 from rlpyt.utils.launching.affinity import encode_affinity, quick_affinity_code
 from rlpyt.utils.launching.exp_launcher import run_experiments
 from rlpyt.utils.launching.variant import make_variants, VariantLevel
@@ -16,19 +14,14 @@ else:
     num_computers = int(args[1])
 
 print(f"MY_COMPUTER: {my_computer},  NUM_COMPUTERS: {num_computers}")
-
 script = "rlpyt/ul/experiments/ul_for_rl/scripts/dmcontrol/train_ul/dmc_atc.py"
-
 affinity_code = quick_affinity_code(contexts_per_gpu=1)
 runs_per_setting = 1
 experiment_title = "dmc_atc_pretrain_1"
 variant_levels_1 = list()
 # variant_levels_2 = list()
 
-
 # Just standard settings.
-
-
 replay_base_dir = "/data/adam/ul4rl/replays/20200715/rad_sac_replaysave84"
 domains = ["ball_in_cup", "cartpole", "cheetah", "walker"]
 replay_filenames = [osp.join(replay_base_dir, game, "run_0/replaybuffer.pkl")

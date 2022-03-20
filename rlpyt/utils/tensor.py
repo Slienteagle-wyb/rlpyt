@@ -21,8 +21,7 @@ def to_onehot(indexes, num, dtype=None):
     trailing dimension."""
     if dtype is None:
         dtype = indexes.dtype
-    onehot = torch.zeros(indexes.shape + (num,),
-        dtype=dtype, device=indexes.device)
+    onehot = torch.zeros(indexes.shape + (num,), dtype=dtype, device=indexes.device)
     onehot.scatter_(-1, indexes.unsqueeze(-1).type(torch.long), 1)
     return onehot
 
@@ -84,3 +83,10 @@ def restore_leading_dims(tensors, lead_dim, T=1, B=1):
         assert B == 1
         tensors = tuple(t.squeeze(0) for t in tensors)
     return tensors if is_seq else tensors[0]
+
+
+if __name__ == '__main__':
+    a = torch.randint(low=0, high=7, size=(3, 3, 1))
+    print(a)
+    onehot = to_onehot(a, 8)
+    print(onehot)

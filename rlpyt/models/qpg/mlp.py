@@ -93,7 +93,7 @@ class VMlpModel(torch.nn.Module):
             self,
             observation_shape,
             hidden_sizes,
-            action_size=None,  # Unused but accept kwarg.
+            action_size=None,  # Unused but accept kw
             ):
         super().__init__()
         self._obs_ndim = len(observation_shape)

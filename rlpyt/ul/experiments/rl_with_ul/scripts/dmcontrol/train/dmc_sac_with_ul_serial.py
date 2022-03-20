@@ -1,17 +1,14 @@
-
 import sys
 import pprint
-
 from rlpyt.utils.launching.affinity import affinity_from_code
 from rlpyt.samplers.serial.sampler import SerialSampler
 from rlpyt.samplers.parallel.cpu.collectors import CpuResetCollector
 from rlpyt.ul.envs.dmcontrol import make
 from rlpyt.ul.algos.rl_with_ul.sac_with_ul import SacWithUl
 from rlpyt.ul.agents.dmc_sac_agent import SacAgent
-from rlpyt.adam.envstep_runner import MinibatchRlEvalEnvStep
+from rlpyt.ul.runners.minibatch_rl_replaysaver import MinibatchRlEvalEnvStep
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
-
 from rlpyt.ul.experiments.rl_with_ul.configs.dmc_sac_with_ul import configs
 
 

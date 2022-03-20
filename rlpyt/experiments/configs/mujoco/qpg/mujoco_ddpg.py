@@ -18,7 +18,8 @@ config = dict(
         learning_rate=1e-3,
         q_learning_rate=1e-3,
     ),
-    env=dict(id="Hopper-v3"),
+    env=dict(
+        id="Hopper-v3"),
     # eval_env=dict(id="Hopper-v3"),  # Same kwargs as env, in train script.
     optim=dict(),
     runner=dict(

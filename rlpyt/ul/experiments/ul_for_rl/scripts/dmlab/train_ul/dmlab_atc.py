@@ -7,7 +7,7 @@ from rlpyt.ul.algos.ul_for_rl.augmented_temporal_contrast import AugmentedTempor
 from rlpyt.ul.runners.unsupervised_learning import UnsupervisedLearning
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
-from rlpyt.ul.models.ul.atc_models import DmlabAtcEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel
 
 from rlpyt.ul.experiments.ul_for_rl.configs.dmlab.dmlab_atc import configs
 
@@ -27,7 +27,7 @@ def build_and_train(
 
     algo = AugmentedTemporalContrast(
         optim_kwargs=config["optim"],
-        EncoderCls=DmlabAtcEncoderModel,
+        EncoderCls=DmlabEncoderModel,
         encoder_kwargs=config["encoder"],
         **config["algo"]
     )
@@ -37,8 +37,7 @@ def build_and_train(
         **config["runner"]
     )
     name = config["name"]
-    with logger_context(log_dir, run_ID, name, config,
-            snapshot_mode="last"):
+    with logger_context(log_dir, run_ID, name, config, snapshot_mode="last"):
         runner.train()
 
 

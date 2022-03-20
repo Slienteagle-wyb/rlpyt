@@ -1,24 +1,19 @@
-
 import copy
 import torch
 from collections import OrderedDict
-
 from rlpyt.agents.base import BaseAgent, AgentStep
 from rlpyt.utils.quick_args import save__init__args
-from rlpyt.ul.models.rl.sac_rl_models import (SacModel,
-    SacConvModel, SacFc1Model, SacActorModel, SacCriticModel)
+from rlpyt.ul.models.rl.sac_rl_models import (SacModel, SacConvModel, SacFc1Model, SacActorModel, SacCriticModel)
 from rlpyt.distributions.gaussian import Gaussian, DistInfoStd
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.models.utils import update_state_dict
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.logging import logger
 
-
 AgentInfo = namedarraytuple("AgentInfo", ["dist_info", "conv"])
 
 
 class SacAgent(BaseAgent):
-
     def __init__(
             self,
             ModelCls=SacModel,
@@ -52,55 +47,48 @@ class SacAgent(BaseAgent):
         assert not (load_conv and load_all)
 
     def initialize(self, env_spaces, share_memory=False,
-            global_B=1, env_ranks=None):
-        self.conv = self.ConvModelCls(
-            image_shape=env_spaces.observation.shape,
-            **self.conv_kwargs)
-        self.q_fc1 = self.Fc1ModelCls(
-            input_size=self.conv.output_size,
-            **self.fc1_kwargs)
-        self.pi_fc1 = self.Fc1ModelCls(
-            input_size=self.conv.output_size,
-            **self.fc1_kwargs)
-
+                   global_B=1, env_ranks=None):
+        self.conv = self.ConvModelCls(image_shape=env_spaces.observation.shape,
+                                      **self.conv_kwargs)
+        self.q_fc1 = self.Fc1ModelCls(input_size=self.conv.output_size,
+                                      **self.fc1_kwargs)
+        self.pi_fc1 = self.Fc1ModelCls(input_size=self.conv.output_size,
+                                       **self.fc1_kwargs)
         latent_size = self.q_fc1.output_size
         action_size = env_spaces.action.shape[0]
 
         # These are just MLPs
-        self.pi_mlp = self.PiModelCls(
-            input_size=latent_size,
-            action_size=action_size,
-            **self.pi_model_kwargs)
-        self.q_mlps = self.QModelCls(
-            input_size=latent_size,
-            action_size=action_size,
-            **self.q_model_kwargs)
+        self.pi_mlp = self.PiModelCls(input_size=latent_size,
+                                      action_size=action_size,
+                                      **self.pi_model_kwargs)
+        self.q_mlps = self.QModelCls(input_size=latent_size,
+                                     action_size=action_size,
+                                     **self.q_model_kwargs)
         self.target_q_mlps = copy.deepcopy(self.q_mlps)  # Separate params.
-
         # Make reference to the full actor model including encoder.
         # CAREFUL ABOUT TRAIN MODE FOR LAYER NORM IF CHANGING THIS?
-        self.model = SacModel(conv=self.conv, pi_fc1=self.pi_fc1,
-            pi_mlp=self.pi_mlp)
+        self.model = SacModel(conv=self.conv,
+                              pi_fc1=self.pi_fc1,
+                              pi_mlp=self.pi_mlp)
 
         if self.load_conv:
             logger.log("Agent loading state dict: " + self.state_dict_filename)
             loaded_state_dict = torch.load(self.state_dict_filename,
-                map_location=torch.device("cpu"))
+                                           map_location=torch.device("cpu"))
             # From UL, saves snapshot: params["algo_state_dict"]["encoder"]
             if "algo_state_dict" in loaded_state_dict:
                 loaded_state_dict = loaded_state_dict
             loaded_state_dict = loaded_state_dict.get("algo_state_dict", loaded_state_dict)
             loaded_state_dict = loaded_state_dict.get("encoder", loaded_state_dict)
             # A bit onerous, but ensures that state dicts match:
-            conv_state_dict = OrderedDict([(k, v)  # .replace("conv.", "", 1)
-                for k, v in loaded_state_dict.items() if k.startswith("conv.")])
+            conv_state_dict = OrderedDict([(k, v) for k, v in loaded_state_dict.items() if k.startswith("conv.")])
             self.conv.load_state_dict(conv_state_dict)
             # Double check it gets into the q_encoder as well.
             logger.log("Agent loaded CONV state dict.")
         elif self.load_all:
             # From RL, saves snapshot: params["agent_state_dict"]
             loaded_state_dict = torch.load(self.state_dict_filename,
-                map_location=torch.device('cpu'))
+                                           map_location=torch.device('cpu'))
             self.load_state_dict(loaded_state_dict["agent_state_dict"])
             logger.log("Agnet loaded FULL state dict.")            
         else:
@@ -152,7 +140,7 @@ class SacAgent(BaseAgent):
         dist_info = DistInfoStd(mean=mean, log_std=log_std)
         action = self.distribution.sample(dist_info)
         agent_info = AgentInfo(dist_info=dist_info,
-            conv=conv if self.store_latent else None)
+                               conv=conv if self.store_latent else None)
         action, agent_info = buffer_to((action, agent_info), device="cpu")
         return AgentStep(action=action, agent_info=agent_info)
 
@@ -170,7 +158,7 @@ class SacAgent(BaseAgent):
         Assume variables already on device."""
         latent = self.target_q_fc1(conv_out)
         target_q1, target_q2 = self.target_q_mlps(latent, action, prev_action,
-            prev_reward)
+                                                  prev_reward)
         return target_q1.cpu(), target_q2.cpu()
 
     def pi(self, conv_out, prev_action, prev_reward):

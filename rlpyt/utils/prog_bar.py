@@ -1,5 +1,3 @@
-
-
 import pyprind
 from rlpyt.utils.logging import logger
 

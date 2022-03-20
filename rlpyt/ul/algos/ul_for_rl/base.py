@@ -1,18 +1,15 @@
-
 import torch
 import pickle
-
 from rlpyt.utils.logging import logger
-from torch.optim.lr_scheduler import CosineAnnealingLR
-from rlpyt.ul.algos.utils.warmup_scheduler import GradualWarmupScheduler
-from rlpyt.ul.algos.utils.weight_decay import add_weight_decay
+from rlpyt.ul.algos.utils.optim_factory import create_optimizer
+from rlpyt.ul.algos.utils.scheduler_factory import create_scheduler
 
 
 class UlAlgorithm:
 
     opt_info_fields = ()
 
-    def initialize(self):
+    def initialize(self, *args, **kwargs):
         raise NotImplementedError
 
     def load_replay(self):
@@ -35,7 +32,7 @@ class UlAlgorithm:
         """Call this on NN modules."""
         raise NotImplementedError
 
-    def validation(self):
+    def validation(self, *args, **kwargs):
         raise NotImplementedError
 
 
@@ -73,34 +70,18 @@ class BaseUlAlgorithm(UlAlgorithm):
         """Set this in each algo's init."""
         return self._replay_T
 
-    def optim_initialize(self, n_updates):
-        self.n_updates = n_updates
-        weight_decay = self.optim_kwargs.pop("weight_decay", 0.)
-        parameters, weight_decay = add_weight_decay(
-            model=self,  # has .parameters() and .named_parameters()
-            weight_decay=weight_decay,
-            filter_ndim_1=True,
-            skip_list=None,
+    def optim_initialize(self, epochs):
+        self.optimizer = create_optimizer(
+            model=self,
+            **self.optim_kwargs,
         )
-        self.optimizer = self.OptimCls(
-            parameters,
-            lr=self.learning_rate,
-            weight_decay=weight_decay,
-            **self.optim_kwargs
-        )
+
         self.lr_scheduler = None
-        if self.learning_rate_anneal == "cosine":
-            self.lr_scheduler = CosineAnnealingLR(
-                self.optimizer,
-                T_max=n_updates - self.learning_rate_warmup,
-            )
-        if self.learning_rate_warmup > 0:
-            self.lr_scheduler = GradualWarmupScheduler(
-                self.optimizer,
-                multiplier=1,
-                total_epoch=self.learning_rate_warmup,  # actually n_updates
-                after_scheduler=self.lr_scheduler,
-            )
+        self.lr_scheduler, _ = create_scheduler(
+            optimizer=self.optimizer,
+            num_epochs=epochs,
+            sched_kwargs=self.sched_kwargs,
+        )
         if self.lr_scheduler is not None:
             self.optimizer.zero_grad()
             self.optimizer.step()  # needed to initialize the scheduler

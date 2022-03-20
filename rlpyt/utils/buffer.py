@@ -4,8 +4,7 @@ import multiprocessing as mp
 import ctypes
 import torch
 
-from rlpyt.utils.collections import (NamedArrayTuple, namedarraytuple_like,
-    NamedArrayTupleSchema_like, NamedTuple)
+from rlpyt.utils.collections import (NamedArrayTuple, namedarraytuple_like, NamedArrayTupleSchema_like, NamedTuple)
 
 
 def buffer_from_example(example, leading_dims, share_memory=False,

@@ -1,7 +1,5 @@
-
 import torch
-
-from rlpyt.ul.models.mlp import MlpModel
+from rlpyt.models.mlp import MlpModel
 from rlpyt.utils.tensor import infer_leading_dims
 
 
@@ -40,3 +38,18 @@ class InverseModel(torch.nn.Module):
         act_logits = self.mlp(mlp_input)
         act_logits = act_logits.view(B, self._num_actions, self._action_size)
         return act_logits
+
+
+class InverseModelHead(torch.nn.Module):
+    def __init__(self,
+                 input_dim,
+                 hidden_size,
+                 num_actions,):
+        super().__init__()
+        layers = [torch.nn.Linear(input_dim, hidden_size),
+                  torch.nn.ReLU(),
+                  torch.nn.Linear(256, num_actions)]
+        self.network = torch.nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.network(x)

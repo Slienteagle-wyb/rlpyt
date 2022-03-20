@@ -81,8 +81,7 @@ class RadSacFromUl(RlAlgorithm):
         assert augmentation in [None, "random_shift", "subpixel_shift"]
         save__init__args(locals())
 
-    def initialize(self, agent, n_itr, batch_spec, mid_batch_reset, examples,
-            world_size=1, rank=0):
+    def initialize(self, agent, n_itr, batch_spec, mid_batch_reset, examples, world_size=1, rank=0):
         """Stores input arguments and initializes replay buffer and optimizer.
         Use in non-async runners.  Computes number of gradient updates per
         optimization iteration as `(replay_ratio * sampler-batch-size /
@@ -91,12 +90,11 @@ class RadSacFromUl(RlAlgorithm):
         self.n_itr = n_itr
         self.mid_batch_reset = mid_batch_reset
         self.sampler_bs = sampler_bs = batch_spec.size
-        self.updates_per_optimize = int(self.replay_ratio * sampler_bs /
-            self.batch_size)
+        self.updates_per_optimize = int(self.replay_ratio * sampler_bs / self.batch_size)
         logger.log(f"From sampler batch size {sampler_bs}, training "
-            f"batch size {self.batch_size}, and replay ratio "
-            f"{self.replay_ratio}, computed {self.updates_per_optimize} "
-            f"updates per iteration.")
+                   f"batch size {self.batch_size}, and replay ratio "
+                   f"{self.replay_ratio}, computed {self.updates_per_optimize} "
+                   f"updates per iteration.")
         self.min_itr_learn = self.min_steps_learn // sampler_bs
         agent.give_min_itr_learn(self.min_itr_learn)
         self.store_latent = agent.store_latent
@@ -137,8 +135,7 @@ class RadSacFromUl(RlAlgorithm):
         if self.initial_optim_state_dict is not None:
             self.load_optim_state_dict(self.initial_optim_state_dict)
         if self.action_prior == "gaussian":
-            self.action_prior_distribution = Gaussian(
-                dim=np.prod(self.agent.env_spaces.action.shape), std=1.)
+            self.action_prior_distribution = Gaussian(dim=np.prod(self.agent.env_spaces.action.shape), std=1.)
 
     def initialize_replay_buffer(self, examples, batch_spec, async_=False):
         """

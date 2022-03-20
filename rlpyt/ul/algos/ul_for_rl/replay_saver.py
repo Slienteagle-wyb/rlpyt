@@ -1,5 +1,3 @@
-
-
 from rlpyt.algos.base import RlAlgorithm
 from rlpyt.replays.non_sequence.uniform import UniformReplayBuffer
 from rlpyt.replays.non_sequence.frame import UniformReplayFrameBuffer
@@ -12,7 +10,7 @@ SamplesToBuffer = namedarraytuple("SamplesToBuffer",
 
 class ReplaySaverAlgo(RlAlgorithm):
     """Doesn't actually learn anything, just builds replay buffer and fits into
-    existing interfaces."""
+    existing interfaces. we can allocate a custom agent to interact with enviorment"""
 
     opt_info_fields = ()
 

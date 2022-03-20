@@ -24,10 +24,12 @@ class UlForRlReplayBuffer:
             replay_T=1,
             validation_split=0.0,
             pixel_control_buffer=None,
-        ):
+    ):
         self.load_replay(replay_buffer, pixel_control_buffer)
-        self.replay_T = replay_T
+
+        self.replay_T = replay_T # the default value is 1: no forward prediction
         self.validation_t = int((self.T - replay_T) * (1 - validation_split))
+
         if pixel_control_buffer is not None:
             logger.log("Replay buffer receiving pixel control returns.")
 
@@ -48,7 +50,7 @@ class UlForRlReplayBuffer:
             self.n_frames = self.loaded_buffer.n_frames
             self._samples_frames = self.loaded_buffer.samples_frames
 
-        self.T, self.B = self.samples.reward.shape
+        self.T, self.B = self._samples.reward.shape
         self.size = self.T * self.B
         self.pixel_control_buffer = pixel_control_buffer
 
@@ -131,7 +133,7 @@ class UlForRlReplayBuffer:
             low = self.validation_t
             high = self.T - self.replay_T
         else:
-            low = self.n_frames - 1 if self._is_frame_buffer else 0
+            low = self.n_frames - 1 if self._is_frame_buffer else 0  # locate at the end of initial frame stack
             high = self.validation_t - self.replay_T
         high = self.T - self.replay_T
         T_idxs = np.random.randint(low=low, high=high, size=(batch_B,))
@@ -140,10 +142,12 @@ class UlForRlReplayBuffer:
 
     def extract_batch(self, T_idxs, B_idxs):
         T = self.replay_T
+        # the index is one step forward for action and reward
         all_action = buffer_func(self.samples.action, extract_sequences,
-            T_idxs - 1, B_idxs, T + 1)
+                                 T_idxs - 1, B_idxs, T + 1)
         all_reward = extract_sequences(self.samples.reward,
-            T_idxs - 1, B_idxs, T + 1)
+                                       T_idxs - 1, B_idxs, T + 1)
+
         batch = SamplesFromReplay(
             observation=self.extract_observation(T_idxs, B_idxs),
             action=all_action[1:],

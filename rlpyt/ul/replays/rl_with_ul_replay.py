@@ -311,7 +311,7 @@ class DqnWithUlReplayBufferMixin:
         T dimension.  Frames are returned OLDEST to NEWEST along the C dimension.
 
         Frames are zero-ed after environment resets."""
-        observation = np.empty(shape=(T, len(B_idxs), self.n_frames) +  # [T,B,C,H,W]
+        observation = np.empty(shape=(T, len(B_idxs), self.n_frames) +  # [T,B,F,C,H,W]
             self.samples_frames.shape[2:], dtype=self.samples_frames.dtype)
         fm1 = self.n_frames - 1
         for i, (t, b) in enumerate(zip(T_idxs, B_idxs)):

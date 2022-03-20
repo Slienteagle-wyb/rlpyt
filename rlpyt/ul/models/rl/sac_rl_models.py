@@ -1,9 +1,6 @@
-
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from rlpyt.models.conv2d import Conv2dModel
 from rlpyt.models.mlp import MlpModel
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
@@ -50,7 +47,7 @@ class SacConvModel(nn.Module):
             kernel_sizes=None,
             strides=None,
             paddings=None,
-            final_nonlinearity=True,
+            final_nonlinearity=None,
             ):
         super().__init__()
         c, h, w = image_shape
@@ -60,9 +57,8 @@ class SacConvModel(nn.Module):
             kernel_sizes=kernel_sizes or [3, 3, 3, 3],
             strides=strides or [2, 1, 1, 1],
             paddings=paddings,
-            final_nonlinearity=final_nonlinearity,
         )
-        self._output_shape = self.conv.conv_out_shape(h=h, w=w, c=c)
+        #self._output_shape = self.conv.conv_out_shape(h=h, w=w, c=c)
         self._output_size = self.conv.conv_out_size(h=h, w=w, c=c)
 
     def forward(self, observation):
@@ -150,7 +146,6 @@ class SacActorModel(nn.Module):
 
 
 class SacCriticModel(nn.Module):
-
     def __init__(
             self,
             input_size,
@@ -172,7 +167,6 @@ class SacCriticModel(nn.Module):
 
     def forward(self, latent, action, prev_action=None, prev_reward=None):
         lead_dim, T, B, _ = infer_leading_dims(latent, 1)  # latent is vector
-
         q_input = torch.cat([
             latent.view(T * B, -1),
             action.view(T * B, -1),
@@ -185,7 +179,6 @@ class SacCriticModel(nn.Module):
 
 class SacNoConvModel(nn.Module):
     """To keep the standard agent.model interface for shared params, etc.
-
     RESULT: yeah this didn't work in most envs, except a bit in walker.
     """
 

@@ -1,13 +1,10 @@
-
 import sys
 import pprint
-
 from rlpyt.utils.launching.affinity import affinity_from_code
 from rlpyt.ul.algos.ul_for_rl.augmented_temporal_contrast import AugmentedTemporalContrast
 from rlpyt.ul.runners.unsupervised_learning import UnsupervisedLearning
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
-
 from rlpyt.ul.experiments.ul_for_rl.configs.dmcontrol.dmc_atc import configs
 
 

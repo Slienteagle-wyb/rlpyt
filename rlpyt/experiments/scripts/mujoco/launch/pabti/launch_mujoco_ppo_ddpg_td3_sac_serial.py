@@ -46,6 +46,8 @@ variants_3M, log_dirs_3M = make_variants(*variant_levels_3M)
 variants = variants_1M + variants_3M
 log_dirs = log_dirs_1M + log_dirs_3M
 
+print(variants, dir_names)
+
 default_config_key = "ppo_1M_serial"
 script = "rlpyt/experiments/scripts/mujoco/pg/train/mujoco_ppo_serial.py"
 experiment_title = "ppo_mujoco"

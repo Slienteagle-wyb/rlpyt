@@ -18,16 +18,11 @@ else:
 print(f"MY_COMPUTER: {my_computer},  NUM_COMPUTERS: {num_computers}")
 
 script = "rlpyt/ul/experiments/ul_for_rl/scripts/dmlab/train_ul/dmlab_atc.py"
+affinity_code = quick_affinity_code(contexts_per_gpu=1)  # output a string: '6cpu_1gpu'
 
-affinity_code = quick_affinity_code(contexts_per_gpu=1)
 runs_per_setting = 1
 experiment_title = "dmc_atc_pretrain_1"
 variant_levels_1 = list()
-# variant_levels_2 = list()
-
-
-# Just standard settings.
-
 
 replay_base_dir = "/data/adam/ul4rl/replays/20200807/dmlab_replaysave_1"
 levels = [
@@ -35,15 +30,13 @@ levels = [
     "explore_goal_locations_small",
     # "rooms_watermaze",
 ]
-replay_filenames = [osp.join(replay_base_dir, level, "run_0/replaybuffer.pkl")
-    for level in levels]
+replay_filenames = [osp.join(replay_base_dir, level, "run_0/replaybuffer.pkl") for level in levels]
 values = list(zip(replay_filenames, levels))
 dir_names = levels
 keys = [("algo", "replay_filepath"), ("name",)]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
-
 variants_1, log_dirs_1 = make_variants(*variant_levels_1)
-# variants_2, log_dirs_2 = make_variants(*variant_levels_2)
+
 
 variants = variants_1  # + variants_2
 log_dirs = log_dirs_1  # + log_dirs_2
@@ -63,10 +56,11 @@ default_config_key = "dmlab_atc"
 
 run_experiments(
     script=script,
-    affinity_code=affinity_code,
-    experiment_title=experiment_title,
-    runs_per_setting=runs_per_setting,
-    variants=my_variants,
-    log_dirs=my_log_dirs,
-    common_args=(default_config_key,),
+    affinity_code=affinity_code,  # string:'6cpu_1gpu'
+    experiment_title=experiment_title,  # custom defined
+    runs_per_setting=runs_per_setting,  # 1
+    variants=my_variants,  # a list of dict [{'algo':{'filepath':absolute_path , 'name':'levels_name'} and this params
+                           # will change the params in the config file
+    log_dirs=my_log_dirs,  # a lsit of level name
+    common_args=(default_config_key,),  # the string for config file
 )

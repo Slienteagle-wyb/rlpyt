@@ -1,6 +1,6 @@
-
 import numpy as np
 import torch
+from torchvision import transforms as T
 # import cv2
 # import copy
 # from scipy.ndimage.filters import gaussian_filter
@@ -121,3 +121,13 @@ def random_shift(imgs, pad=1, prob=1.):
         shifted = shifted.transpose(1, 0, 2, 3, 4)
 
     return shifted
+
+
+def byol_aug(imgs):
+    customAug = T.Compose([T.RandomResizedCrop(84, scale=(0.6, 1.0)),
+                           T.RandomApply(torch.nn.ModuleList([T.ColorJitter(.8, .8, .8, .2)]), p=.3),
+                           T.RandomGrayscale(p=0.2),
+                           T.RandomApply(torch.nn.ModuleList([T.GaussianBlur((3, 3), (1.0, 2.0))]), p=0.2),
+                           ])
+    auged_img = customAug(imgs)
+    return auged_img

@@ -1,7 +1,5 @@
-
 import sys
 import copy
-
 from rlpyt.utils.launching.affinity import encode_affinity, quick_affinity_code
 from rlpyt.utils.launching.exp_launcher import run_experiments
 from rlpyt.utils.launching.variant import make_variants, VariantLevel
@@ -10,7 +8,6 @@ args = sys.argv[1:]
 assert len(args) == 2
 my_computer = int(args[0])
 num_computers = int(args[1])
-
 print(f"MY_COMPUTER: {my_computer},  NUM_COMPUTERS: {num_computers}")
 
 script = "rlpyt/ul/experiments/rl_with_ul/scripts/dmcontrol/train/dmc_sac_with_ul_serial.py"
@@ -65,7 +62,7 @@ bss = [512]
 # ul_bss = [512] + [256] * n_after_cheetah
 # rprs = [512] + [256] * 2  # [512]
 # steps = [150e3, 150e3, 75e3, 3e5]
-steps = [250e3]
+steps = [150e3]
 steps = [s + 1e4 for s in steps]  # 1e4 initialization min steps learn
 values = list(zip(doms, tasks, fskips, qlrs, pilrs, bss, steps))
 dir_names = [f"{dom}_{task}" for (dom, task) in zip(doms, tasks)]
