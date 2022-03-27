@@ -17,7 +17,7 @@ variant_levles = list()
 # make a varent of runs
 keys = [('optim', 'lr'), ]
 values = [[1e-3], ]
-dir_names = ['stc_0319_cloud_run1', ]
+dir_names = ['stc_0320_local_run1', ]
 variant_levles.append(VariantLevel(keys, values, dir_names))
 
 keys = [('algo', 'spr_loss_coefficient'), ('algo', 'contrast_loss_coefficient'),
@@ -25,8 +25,8 @@ keys = [('algo', 'spr_loss_coefficient'), ('algo', 'contrast_loss_coefficient'),
 # values = [[1.0, 1.0, 'stc_dmnet_0318_spr1'], [2.0, 1.0, 'stc_dmnet_0318_spr2'],
 #           [3.0, 1.0, 'stc_dmnet_0318_spr3'], [4.0, 1.0, 'stc_dmnet_0318_spr4']]
 # dir_names = ['stc_dmnet_0318_spr1', 'stc_dmnet_0318_spr2', 'stc_dmnet_0318_spr3', 'stc_dmnet_0318_spr4']
-values = [[1.0, 0.2, 'stc_dmnet_0319l_spr1_0.2'], ]
-dir_names = ['stc_dmnetl_0319l_spr1_0.2', ]
+values = [[1.0, 0.4, 'stc_dmnet_0320l_spr1_0.4'], ]
+dir_names = ['stc_dmnetl_0320l_spr1_0.4', ]
 variant_levles.append(VariantLevel(keys, values, dir_names))
 
 variants, log_dirs = make_variants(*variant_levles)

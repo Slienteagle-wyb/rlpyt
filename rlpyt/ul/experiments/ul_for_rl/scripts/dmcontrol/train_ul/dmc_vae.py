@@ -3,7 +3,7 @@ import sys
 import pprint
 
 from rlpyt.utils.launching.affinity import affinity_from_code
-from rlpyt.ul.algos.ul_for_rl.vae import VAE
+from ul.algos.downstreams.vae import VAE
 from rlpyt.ul.runners.unsupervised_learning import UnsupervisedLearning
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config

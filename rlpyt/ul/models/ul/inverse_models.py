@@ -13,7 +13,7 @@ class InverseModel(torch.nn.Module):
             num_actions,
             subtract=False,
             use_input="conv",  # ["conv", "z"]
-        ):
+            ):
         super().__init__()
         if use_input != "conv":
             raise NotImplementedError
@@ -48,7 +48,7 @@ class InverseModelHead(torch.nn.Module):
         super().__init__()
         layers = [torch.nn.Linear(input_dim, hidden_size),
                   torch.nn.ReLU(),
-                  torch.nn.Linear(256, num_actions)]
+                  torch.nn.Linear(hidden_size, num_actions)]
         self.network = torch.nn.Sequential(*layers)
 
     def forward(self, x):

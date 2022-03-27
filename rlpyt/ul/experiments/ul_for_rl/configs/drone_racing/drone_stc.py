@@ -37,7 +37,7 @@ config = dict(
     runner=dict(
         n_epochs=int(1500),  # epoch==200 updates now
         log_interval_updates=int(1e3),
-        wandb_log=False,
+        wandb_log=True,
         wandb_log_name=None,
         snapshot_gap_intervals=40,  # the save interval factor
     ),

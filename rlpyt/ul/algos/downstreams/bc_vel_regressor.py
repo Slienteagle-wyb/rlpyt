@@ -1,6 +1,6 @@
 import torch
 from collections import namedtuple
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel, DmlabEncoderModelNorm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -9,7 +9,7 @@ from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 
-OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm"])
+OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["ValPredLoss"])
 
 
@@ -21,22 +21,19 @@ class VelRegressBc(BaseUlAlgorithm):
             delta_T=0,
             batch_T=1,
             batch_B=512,
-            learning_rate=1e-3,
-            learning_rate_anneal=None,  # cosine
-            learning_rate_warmup=0,  # number of updates
             clip_grad_norm=10.,
             validation_split=0.0,  # used for calculating num of epoch
             with_validation=True,
-            n_validation_itrs=10,
             latent_size=256,
+            hidden_sizes=512,
             mlp_hidden_layers=None,
             action_dim=4,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModel,
+            EncoderCls=DmlabEncoderModelNorm,
             MlpCls=MlpModel,
-            OptimCls=torch.optim.Adam,
             state_dict_filename=None,
+            sched_kwargs=None,
             optim_kwargs=None,
             encoder_kwargs=None,
             train_replay_kwargs=None,
@@ -44,18 +41,21 @@ class VelRegressBc(BaseUlAlgorithm):
     ):
         encoder_kwargs = dict() if encoder_kwargs is None else encoder_kwargs
         save__init__args(locals())
-        assert learning_rate_anneal in [None, "cosine"]
         self.batch_size = batch_B * batch_T
         self._replay_T = delta_T + batch_T
         self.pred_loss_fn = torch.nn.MSELoss()
 
-    def initialize(self, n_updates, cuda_idx=None):
+    def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device('cpu') if cuda_idx is None else torch.device('cuda', index=cuda_idx)
         examples = self.load_replay(with_validation=self.with_validation)
         self.img_shape = examples.observation.shape
 
+        self.itrs_per_epoch = self.train_buffer.size // self.batch_size
+        self.n_updates = epochs * self.itrs_per_epoch
+        print(self.itrs_per_epoch, self.n_updates)
         self.encoder = self.EncoderCls(
             image_shape=self.img_shape,
+            hidden_sizes=self.hidden_sizes,
             latent_size=self.latent_size,
             **self.encoder_kwargs,
         )
@@ -79,13 +79,15 @@ class VelRegressBc(BaseUlAlgorithm):
         self.encoder.to(self.device)
         self.mlp_head.to(self.device)
 
-        self.optim_initialize(n_updates)
+        self.optim_initialize(epochs)
 
     def optimize(self, itr):
         opt_info = OptInfo(*([] for _ in range(len(OptInfo._fields))))
         samples = self.train_buffer.sample_batch(self.batch_B)  # batch b is the batch_size of every single trajectory
-        if self.lr_scheduler is not None:
-            self.lr_scheduler.step(itr)  # Do every itr instead of every epoch
+        current_epoch = itr // self.itrs_per_epoch
+        if self.lr_scheduler is not None and itr % self.itrs_per_epoch == 0:
+            self.lr_scheduler.step(current_epoch)
+        current_lr = self.lr_scheduler.get_epoch_values(current_epoch)[0]
         self.optimizer.zero_grad()
         pred_loss = self.pred_loss(samples)
         pred_loss.backward()
@@ -97,6 +99,7 @@ class VelRegressBc(BaseUlAlgorithm):
         self.optimizer.step()
         opt_info.predLoss.append(pred_loss.item())
         opt_info.gradNorm.append(grad_norm.item())
+        opt_info.current_lr.append(current_lr)
 
         return opt_info
 
@@ -118,7 +121,7 @@ class VelRegressBc(BaseUlAlgorithm):
         logger.log('computing validation loss .....')
         val_info = ValInfo(*([] for _ in range(len(ValInfo._fields))))
         self.optimizer.zero_grad()
-        for _ in range(self.n_validation_itrs):
+        for _ in range(self.itrs_per_epoch):
             samples = self.val_buffer.sample_batch(self.batch_B)
             with torch.no_grad():
                 pred_loss = self.pred_loss(samples)

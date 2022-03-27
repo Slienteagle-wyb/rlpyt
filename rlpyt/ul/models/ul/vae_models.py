@@ -1,8 +1,6 @@
-
 import torch
 import torch.nn.functional as F
 import numpy as np
-
 from rlpyt.models.mlp import MlpModel
 
 
@@ -106,3 +104,18 @@ class ConvTranspose2dModel(torch.nn.Module):
     def forward(self, input):
         """Assumes shape is already [B,C,H,W]."""
         return self.convt(input)
+
+
+if __name__ == '__main__':
+    decoder = VaeDecoderModel(
+        latent_size=128,
+        reshape=(64, 9, 9),
+        channels=(64, 64, 32, 3),
+        kernel_sizes=(3, 3, 4, 8),
+        strides=(1, 1, 2, 4),
+        paddings=(1, 1, 0, 0),
+        output_paddings=(0, 0, 0, 0)
+    )
+    latent = torch.rand((16, 128))
+    decoder_output = decoder(latent)
+    print(decoder_output.shape)

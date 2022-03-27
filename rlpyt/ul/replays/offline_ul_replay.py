@@ -4,7 +4,8 @@ from rlpyt.utils.buffer import torchify_buffer, buffer_func
 from rlpyt.utils.misc import extract_sequences
 from rlpyt.utils.collections import namedarraytuple
 
-BatchSamples = namedarraytuple('BatchSamples', ['observations', 'translations', 'rotations', 'velocities', 'directions'])
+BatchSamples = namedarraytuple('BatchSamples', ['observations', 'translations', 'rotations', 'prev_translations',
+                                                'prev_rotations', 'velocities', 'directions'])
 
 
 class OfflineUlReplayBuffer:
@@ -15,7 +16,7 @@ class OfflineUlReplayBuffer:
                  data_path=None,
                  translation_dim=3,
                  rotation_dim=6,
-                 command_dim=8,
+                 command_catgorical=8,
                  episode_length=2000,
                  num_runs=1,
                  forward_step=0,
@@ -28,7 +29,7 @@ class OfflineUlReplayBuffer:
         self.img_size = img_size
         self.translation_dim = translation_dim
         self.rotation_dim = rotation_dim
-        self.command_dim = command_dim
+        self.command_catgorical = command_catgorical
         # initialize the namedarray with the shape of [T, B, C, H, W] and [T, B, act_dim]
         self.example = OfflineSamples(observation=np.zeros((3, img_size, img_size), dtype=np.float32),
                                       translation=np.zeros(translation_dim, dtype=np.float32),
@@ -81,7 +82,9 @@ class OfflineUlReplayBuffer:
         batch = BatchSamples(
             observations=self.extract_observation(T_idxs, B_idxs, self.forward_step),
             translations=translations[1:],
+            prev_translations=translations[:-1],
             rotations=rotations[1:],
+            prev_rotations=rotations[:-1],
             velocities=velocities[1:],
             directions=directions[1:]
         )

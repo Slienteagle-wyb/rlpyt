@@ -1,4 +1,3 @@
-import torch
 import json
 from torch import optim as optim
 from timm.optim.adafactor import Adafactor

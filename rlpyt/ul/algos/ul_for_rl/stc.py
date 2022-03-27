@@ -57,7 +57,6 @@ class DroneSTC(BaseUlAlgorithm):
         self.batch_size = batch_B * batch_T  # batch_size for calculating update params
         self._replay_T = warmup_T + batch_T  # self.replay_T == self._replay_T is the len of every sampled trajectory
 
-
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
 
@@ -146,7 +145,6 @@ class DroneSTC(BaseUlAlgorithm):
 
     def stc_loss(self, samples):
         # the dim of T for samples.observation is 1+delta_T
-        # TODO the postive and anchor is just for one forward step, and needed be changed for multi-step
         anchor = samples.observations
         length, b, f, c, h, w = anchor.shape
         anchor = anchor.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
@@ -172,13 +170,12 @@ class DroneSTC(BaseUlAlgorithm):
 
         with torch.no_grad():
             z_positive, z_conv_positive = self.target_encoder(positive)
-            # shape of c_positive [batch_T, batch_B, latent_dim]
 
         z_anchor, z_conv_anchor = self.encoder(anchor)
 
         spr_loss, pred_accuracies = self.spr_loss(z_anchor, z_positive, action)
         contrast_loss, contrast_accuracy = self.contrast_loss(z_anchor, z_positive)
-        loss = spr_loss  + contrast_loss
+        loss = spr_loss + contrast_loss
 
         return loss, spr_loss, contrast_loss, pred_accuracies, contrast_accuracy
 

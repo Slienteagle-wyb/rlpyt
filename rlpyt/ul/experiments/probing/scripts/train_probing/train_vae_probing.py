@@ -1,18 +1,18 @@
 import sys
 import pprint
 from rlpyt.utils.launching.affinity import affinity_from_code
-from rlpyt.ul.algos.ul_for_rl.mst import DroneMST
-from rlpyt.ul.runners.unsupervised_learning import UnsupervisedLearning
+from rlpyt.ul.algos.downstreams.vae import VAE
+from rlpyt.ul.runners.behavior_cloning import BehaviorCloning
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
-from rlpyt.ul.experiments.ul_for_rl.configs.drone_racing.drone_mst import configs
+from rlpyt.ul.experiments.probing.configs.vae_probing import configs
 
 
 def build_and_train(
         slot_affinity_code="0slt_1gpu_1cpu",
         log_dir="test",
         run_ID="0",
-        config_key="drone_mst",
+        config_key="vae_probing",
         ):
     affinity = affinity_from_code(slot_affinity_code)
     config = configs[config_key]
@@ -21,20 +21,22 @@ def build_and_train(
 
     pprint.pprint(config)
 
-    algo = DroneMST(
+    algo = VAE(
         optim_kwargs=config['optim'],
-        encoder_kwargs=config['encoder'],
-        replay_kwargs=config['replay'],
         sched_kwargs=config['sched'],
+        encoder_kwargs=config['encoder'],
+        decoder_kwargs=config['decoder'],
+        train_replay_kwargs=config['train_replay'],
+        val_replay_kwargs=config['val_replay'],
         **config['algo']
     )
-    runner = UnsupervisedLearning(
+    runner = BehaviorCloning(
         algo=algo,
         affinity=affinity,
         **config["runner"]
     )
     name = config["name"]
-    with logger_context(log_dir, run_ID, name, config, snapshot_mode="last+gap"):
+    with logger_context(log_dir, run_ID, name, config, snapshot_mode="all"):
         runner.train()
 
 

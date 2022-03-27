@@ -5,7 +5,7 @@ from rlpyt.utils.launching.variant import make_variants, VariantLevel
 affinity_code = encode_affinity(
     n_cpu_core=6,  # 6 for local
     n_gpu=1,
-    contexts_per_gpu=2,  # How many experiment to share each GPU
+    contexts_per_gpu=1,  # How many experiment to share each GPU
 )
 print(affinity_code)
 script = 'rlpyt/ul/experiments/ul_for_rl/scripts/drone_racing/train_ul/drone_mst.py'
@@ -15,17 +15,15 @@ variant_levles = list()
 
 # make a varent of runs
 keys = [('algo', 'spr_loss_coefficient'), ('algo', 'contrast_loss_coefficient'),
-        ('algo', 'inverse_dyna_loss_coefficient')]
-values = [[1.0, 1.0, 1.0], ]
-dir_names = ['mst_0317_run1']
+        ('algo', 'inverse_dyna_loss_coefficient'), ('runner', 'wandb_log_name')]
+values = [[2.0, 1.0, 1.0, 'mst_0326l_partial_obs_spr2'], ]
+dir_names = ['mst_0326l_run1']
 variant_levles.append(VariantLevel(keys, values, dir_names))
 
 
 variants, log_dirs = make_variants(*variant_levles)
 
-
 default_config_key = "drone_mst"
-
 run_experiments(
     script=script,
     affinity_code=affinity_code,

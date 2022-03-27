@@ -23,6 +23,7 @@ def build_and_train(
 
     algo = VelRegressBc(
         optim_kwargs=config['optim'],
+        sched_kwargs=config['sched'],
         encoder_kwargs=config['encoder'],
         train_replay_kwargs=config['train_replay'],
         val_replay_kwargs=config['val_replay'],

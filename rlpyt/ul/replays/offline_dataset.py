@@ -40,7 +40,6 @@ class OfflineDatasets(Dataset):
     # extract and tensorfy the data
     def extract_data(self):
         runs = glob.glob(str(self.data_path) + '/*')
-        assert self.B == len(runs)
         runs.sort()
         for run_idx in tqdm(range(self.B)):
             run = runs[run_idx]
@@ -93,10 +92,10 @@ class OfflineDatasets(Dataset):
                 velocity = self.normalize_v(action)
                 img_tensor = self.preprocess(image)
                 sample = self.offlinesamples(observation=img_tensor,
-                                             translation=torch.empty(3),
-                                             rotation=torch.empty(6),
-                                             velocity=torch.FloatTensor(velocity),
-                                             direction=torch.empty(1))
+                                             translation=np.zeros(3),
+                                             rotation=np.zeros(6),
+                                             velocity=np.array(velocity, dtype=np.float32),
+                                             direction=np.zeros(1))
                 self.samples[i][run_idx] = sample
                 if index % self.T == 0:
                     print('had read num of images:', index)

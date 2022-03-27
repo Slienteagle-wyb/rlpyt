@@ -14,7 +14,7 @@ class BehaviorCloning(BaseRunner):
     def __init__(
             self,
             algo,
-            n_updates,
+            n_epochs,
             seed=None,
             affinity=None,
             log_interval_updates=1e3,
@@ -22,7 +22,6 @@ class BehaviorCloning(BaseRunner):
             wandb_log_name=None,
             snapshot_gap_intervals=None,
     ):
-        n_updates = int(n_updates)
         affinity = dict() if affinity is None else affinity
         save__init__args(locals())
 
@@ -50,7 +49,7 @@ class BehaviorCloning(BaseRunner):
         # self.world_size = world_size = getattr(self, "world_size", 1)
 
         self.algo.initialize(
-            n_updates=self.n_updates,  # n_update: default is 10k
+            epochs=self.n_epochs,  # n_update: default is 10k
             cuda_idx=self.affinity.get("cuda_idx", None),
         )
 
@@ -114,14 +113,14 @@ class BehaviorCloning(BaseRunner):
                 wandb.log({k: np.mean(v)}, step=itr)
         self._opt_infos = {k: list() for k in self._opt_infos}  # (reset)
         logger.dump_tabular(with_prefix=False)
-        if itr < self.n_updates - 1:
+        if itr < self.algo.n_updates - 1:
             logger.log(f"Optimizing over {self.log_interval_updates} iterations.")
             self.pbar = ProgBarCounter(self.log_interval_updates)
 
     def train(self):
         self.startup()
         self.algo.train()  # set train mode for the model
-        for itr in range(self.n_updates):  # default total optimize step: self.n_update: 10k
+        for itr in range(self.algo.n_updates):  # default total optimize step: self.n_update: 10k
             logger.set_iteration(itr)  # set a global variable of num of iteration
             with logger.prefix(f"itr #{itr} "):
                 opt_info = self.algo.optimize(itr)  # perform one update/iter(sample a batch data and optimize)

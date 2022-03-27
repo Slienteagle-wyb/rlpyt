@@ -1,9 +1,7 @@
 import numpy as np
 import torch
-from torchvision import transforms as T
-# import cv2
-# import copy
-# from scipy.ndimage.filters import gaussian_filter
+from kornia.augmentation import RandomAffine, RandomCrop, CenterCrop, RandomResizedCrop
+from kornia.filters import GaussianBlur2d
 
 
 ##############################################################################
@@ -123,11 +121,36 @@ def random_shift(imgs, pad=1, prob=1.):
     return shifted
 
 
-def byol_aug(imgs):
-    customAug = T.Compose([T.RandomResizedCrop(84, scale=(0.6, 1.0)),
-                           T.RandomApply(torch.nn.ModuleList([T.ColorJitter(.8, .8, .8, .2)]), p=.3),
-                           T.RandomGrayscale(p=0.2),
-                           T.RandomApply(torch.nn.ModuleList([T.GaussianBlur((3, 3), (1.0, 2.0))]), p=0.2),
-                           ])
-    auged_img = customAug(imgs)
-    return auged_img
+def get_augmentation(augmentation, imagesize):
+    if isinstance(augmentation, str):
+        augmentation = augmentation.split("_")
+    transforms = []
+    for aug in augmentation:
+        if aug == "affine":
+            transformation = RandomAffine(5, (.14, .14), (.9, 1.1), (-5, 5))
+        elif aug == "rrc":
+            transformation = RandomResizedCrop((imagesize, imagesize), (0.8, 1))
+        elif aug == "blur":
+            transformation = GaussianBlur2d((5, 5), (1.5, 1.5))
+        elif aug == "shift" or aug == "crop":
+            transformation = torch.nn.Sequential(torch.nn.ReplicationPad2d(4), RandomCrop((84, 84)))
+        elif aug == "intensity":
+            transformation = Intensity(scale=0.05)
+        elif aug == "none":
+            continue
+        else:
+            raise NotImplementedError()
+        transforms.append(transformation)
+
+    return transforms
+
+
+class Intensity(torch.nn.Module):
+    def __init__(self, scale):
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        r = torch.randn((x.size(0), 1, 1, 1), device=x.device)
+        noise = 1.0 + (self.scale * r.clamp(-2.0, 2.0))
+        return x * noise
