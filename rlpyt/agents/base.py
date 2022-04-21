@@ -2,15 +2,13 @@ import multiprocessing as mp
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DistributedDataParallelCPU as DDPC  # Deprecated
-
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.synchronize import RWLock
 from rlpyt.utils.logging import logger
 from rlpyt.models.utils import strip_ddp_state_dict
 
-AgentInputs = namedarraytuple("AgentInputs",
-    ["observation", "prev_action", "prev_reward"])
+AgentInputs = namedarraytuple("AgentInputs", ["observation", "prev_action", "prev_reward"])
 AgentStep = namedarraytuple("AgentStep", ["action", "agent_info"])
 
 
@@ -44,7 +42,7 @@ class BaseAgent:
         """
 
         save__init__args(locals())
-        self.model = None  # type: torch.nn.Module
+        self.model = None
         self.shared_model = None
         self.distribution = None
         self.device = torch.device("cpu")

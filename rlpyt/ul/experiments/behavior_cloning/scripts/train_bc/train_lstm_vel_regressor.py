@@ -1,11 +1,11 @@
 import sys
 import pprint
 from rlpyt.utils.launching.affinity import affinity_from_code
-from rlpyt.ul.algos.downstreams.bc_vel_regressor import VelRegressBc
+from rlpyt.ul.algos.downstreams.lstm_vel_regressor import LstmVelRegressBc
 from rlpyt.ul.runners.behavior_cloning import BehaviorCloning
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
-from rlpyt.ul.experiments.behavior_cloning.configs.vel_regressor import configs
+from rlpyt.ul.experiments.behavior_cloning.configs.lstm_vel_regressor import configs
 
 
 def build_and_train(
@@ -21,7 +21,7 @@ def build_and_train(
 
     pprint.pprint(config)
 
-    algo = VelRegressBc(
+    algo = LstmVelRegressBc(
         optim_kwargs=config['optim'],
         sched_kwargs=config['sched'],
         encoder_kwargs=config['encoder'],

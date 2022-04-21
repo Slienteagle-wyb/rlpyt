@@ -4,6 +4,7 @@ from rlpyt.models.mlp import MlpModel
 from rlpyt.ul.models.dmlab_conv2d import DmlabConv2dModel, DmlabConv2dModelBn
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel
+from rlpyt.ul.models.ul.residual_networks import ResnetCNN
 
 
 def weight_init(m):
@@ -201,6 +202,47 @@ class DmlabEncoderModelNorm(torch.nn.Module):
         )
         if kaiming_init:
             self.apply(weight_init)
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1. / 255)
+        else:
+            img = observation
+        conv = self.conv(img.reshape(T * B, *img_shape))
+        c = self.head(conv.reshape(T * B, -1))
+
+        c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
+
+        return c, conv  # In case wanting to do something with conv output
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+
+class ResEncoderModel(torch.nn.Module):
+    def __init__(self,
+                 image_shape,
+                 latent_size,
+                 hidden_sizes
+                 ):
+        super(ResEncoderModel, self).__init__()
+        c, h, w = image_shape
+        self.conv = ResnetCNN(input_channels=c)
+        self._output_size = self.conv.output_size(h, w)
+        self._output_shape = self.conv.output_shape(h, w)
+
+        self.head = ByolMlpModel(
+            input_dim=self._output_size,
+            latent_size=latent_size,
+            hidden_size=hidden_sizes
+        )
 
     def forward(self, observation):
         lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)

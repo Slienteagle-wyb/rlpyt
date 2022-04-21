@@ -9,26 +9,19 @@ affinity_code = encode_affinity(
     contexts_per_gpu=2,  # How many experiment to share each GPU
 )
 print(affinity_code)
-script = "rlpyt/ul/experiments/behavior_cloning/scripts/train_bc/train_vel_regressor.py"
+script = "rlpyt/ul/experiments/behavior_cloning/scripts/train_bc/train_state_mlp_vel_regressor.py"
 runs_per_setting = 1
-experiment_title = "mst_vel_regressor"
-default_config_key = "vel_regressor"
+experiment_title = "mst_state_mlp_vel_regressor"
+default_config_key = "state_mlp_vel_regressor"
 variant_levles = list()
 
-# keys = [('algo', 'batch_T')]
-# values = [[32, ]]
-# # values = list(zip(values))
-# dir_names = ['stc_0322_run1']
-# variant_levles.append(VariantLevel(keys, values, dir_names))
-
-keys = [('optim', 'lr'), ('runner', 'wandb_log_name')]
-values = [[5e-4, 'mst_0402_partial_lr_5e-4_baseline2']]
-dir_name = ['learning_rate_0.0005']
+keys = [('optim', 'lr'), ('runner', 'wandb_log_name'), ('algo', 'state_latent_dim')]
+values = [[5e-4, 'mst_0402_partial_atti_byol_latent64', 64], [5e-4, 'mst_0402_partial_atti_byol_latent256', 256]]
+dir_name = ['state_latent_dim_64', 'state_latent_dim_256']
 variant_levles.append(VariantLevel(keys, values, dir_name))
 
 variants, log_dirs = make_variants(*variant_levles)
 print(variants, log_dirs)
-
 
 run_experiments(
     script=script,

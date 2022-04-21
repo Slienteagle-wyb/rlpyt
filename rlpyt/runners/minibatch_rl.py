@@ -1,7 +1,8 @@
 import psutil
 import time
 import torch
-import math
+import wandb
+import numpy as np
 from collections import deque
 from rlpyt.runners.base import BaseRunner
 from rlpyt.utils.quick_args import save__init__args
@@ -37,7 +38,11 @@ class MinibatchRlBase(BaseRunner):
             seed=None,
             affinity=None,
             log_interval_steps=1e5,
-            ):
+            save_snapshot_factor=10,
+            with_wandb_log=False,
+            wandb_log_name=None,
+            config_dict=None
+    ):
         n_steps = int(n_steps)
         log_interval_steps = int(log_interval_steps)
         affinity = dict() if affinity is None else affinity
@@ -46,9 +51,11 @@ class MinibatchRlBase(BaseRunner):
 
     def startup(self):
         """
-        Sets hardware affinities, initializes the following: 1) sampler (which
-        should initialize the agent), 2) agent device and data-parallel wrapper (if applicable),
-        3) algorithm, 4) logger.
+        Sets hardware affinities, initializes the following:
+        1) sampler (which should initialize the agent),
+        2) agent device and data-parallel wrapper (if applicable),
+        3) algorithm,
+        4) logger.
         """
         p = psutil.Process()
         try:
@@ -59,16 +66,19 @@ class MinibatchRlBase(BaseRunner):
         except AttributeError:
             cpu_affin = "UNAVAILABLE MacOS"
         logger.log(f"Runner {getattr(self, 'rank', '')} master CPU affinity: "
-            f"{cpu_affin}.")
+                   f"{cpu_affin}.")
         if self.affinity.get("master_torch_threads", None) is not None:
             torch.set_num_threads(self.affinity["master_torch_threads"])
         logger.log(f"Runner {getattr(self, 'rank', '')} master Torch threads: "
-            f"{torch.get_num_threads()}.")
+                   f"{torch.get_num_threads()}.")
         if self.seed is None:
             self.seed = make_seed()
         set_seed(self.seed)
+
+        # the default param of rank=0, world_size=1
         self.rank = rank = getattr(self, "rank", 0)
         self.world_size = world_size = getattr(self, "world_size", 1)
+        # initialize sampler, agent and instantiation collectors and env
         examples = self.sampler.initialize(
             agent=self.agent,  # Agent gets initialized in sampler.
             affinity=self.affinity,
@@ -78,11 +88,15 @@ class MinibatchRlBase(BaseRunner):
             rank=rank,
             world_size=world_size,
         )
+        self.agent.to_device(self.affinity.get("cuda_idx", None))
+        # sampler.batch_spec.size == sampler.batch_T * sampler.batch_B * world_size
+        # calculate n_itr by the total num of transitions sampled by collectors every itr/update
         self.itr_batch_size = self.sampler.batch_spec.size * world_size
         n_itr = self.get_n_itr()
-        self.agent.to_device(self.affinity.get("cuda_idx", None))
+        # num of parallel envs decided by world_size
         if world_size > 1:
             self.agent.data_parallel()
+
         self.algo.initialize(
             agent=self.agent,
             n_itr=n_itr,
@@ -108,8 +122,7 @@ class MinibatchRlBase(BaseRunner):
         interval units from environment steps to iterations.
         """
         # Log at least as often as requested (round down itrs):
-        log_interval_itrs = max(self.log_interval_steps //
-            self.itr_batch_size, 1)
+        log_interval_itrs = max(self.log_interval_steps // self.itr_batch_size, 1)
         n_itr = self.n_steps // self.itr_batch_size
         if n_itr % log_interval_itrs > 0:  # Keep going to next log itr.
             n_itr += log_interval_itrs - (n_itr % log_interval_itrs)
@@ -124,6 +137,11 @@ class MinibatchRlBase(BaseRunner):
         self._cum_time = 0.
         self._cum_completed_trajs = 0
         self._last_update_counter = 0
+        # init wandb_log
+        if self.with_wandb_log:
+            wandb.init(project='drone_rl_from_ul', entity='slientea98',
+                       config=self.config_dict)
+            wandb.run.name = self.wandb_log_name
 
     def shutdown(self):
         logger.log("Training complete.")
@@ -157,9 +175,15 @@ class MinibatchRlBase(BaseRunner):
         Store any diagnostic information from a training iteration that should
         be kept for the next logging iteration.
         """
+        # note that the optimization info is stored in self._opt_infos
         self._cum_completed_trajs += len(traj_infos)
+        cum_steps = (itr + 1) * self.sampler.batch_size * self.world_size
+        env_steps = cum_steps * self._frame_skip
         for k, v in self._opt_infos.items():
             new_v = getattr(opt_info, k, [])
+            # wandb log the average optim info of every itr
+            if self.with_wandb_log and new_v != []:
+                wandb.log({k: np.mean(new_v)}, step=env_steps)
             v.extend(new_v if isinstance(new_v, list) else [new_v])
         self.pbar.update((itr + 1) % self.log_interval_itrs)
 
@@ -176,21 +200,20 @@ class MinibatchRlBase(BaseRunner):
         train_time_elapsed = new_time - self._last_time - eval_time
         new_updates = self.algo.update_counter - self._last_update_counter
         new_samples = (self.sampler.batch_size * self.world_size *
-            self.log_interval_itrs)
+                       self.log_interval_itrs)
         updates_per_second = (float('nan') if itr == 0 else
-            new_updates / train_time_elapsed)
+                              new_updates / train_time_elapsed)
         samples_per_second = (float('nan') if itr == 0 else
-            new_samples / train_time_elapsed)
+                              new_samples / train_time_elapsed)
         replay_ratio = (new_updates * self.algo.batch_size * self.world_size /
-            new_samples)
+                        new_samples)
         cum_replay_ratio = (self.algo.batch_size * self.algo.update_counter /
-            ((itr + 1) * self.sampler.batch_size))  # world_size cancels.
+                            ((itr + 1) * self.sampler.batch_size))  # world_size cancels.
         cum_steps = (itr + 1) * self.sampler.batch_size * self.world_size
 
         with logger.tabular_prefix(prefix):
             if self._eval:
-                logger.record_tabular('CumTrainTime',
-                    self._cum_time - self._cum_eval_time)  # Already added new eval_time.
+                logger.record_tabular('CumTrainTime', self._cum_time - self._cum_eval_time)  # Already added new eval_time.
             logger.record_tabular('Iteration', itr)
             logger.record_tabular('CumTime (s)', self._cum_time)
             logger.record_tabular('CumSteps', cum_steps)
@@ -209,7 +232,7 @@ class MinibatchRlBase(BaseRunner):
             logger.log(f"Optimizing over {self.log_interval_itrs} iterations.")
             self.pbar = ProgBarCounter(self.log_interval_itrs)
 
-    def _log_infos(self, traj_infos=None):
+    def _log_infos(self, env_steps, traj_infos=None):
         """
         Writes trajectory info and optimizer info into csv via the logger.
         Resets stored optimizer info.
@@ -220,6 +243,9 @@ class MinibatchRlBase(BaseRunner):
             for k in traj_infos[0]:
                 if not k.startswith("_"):
                     logger.record_tabular_misc_stat(k, [info[k] for info in traj_infos])
+                    if self.with_wandb_log:
+                        print(k, np.mean([info[k] for info in traj_infos]))
+                        wandb.log({k: np.mean([info[k] for info in traj_infos])}, step=env_steps)
 
         if self._opt_infos:
             for k, v in self._opt_infos.items():
@@ -276,7 +302,7 @@ class MinibatchRl(MinibatchRlBase):
         with logger.tabular_prefix(prefix):
             logger.record_tabular('NewCompletedTrajs', self._new_completed_trajs)
             logger.record_tabular('StepsInTrajWindow',
-                sum(info["Length"] for info in self._traj_infos))
+                                  sum(info["Length"] for info in self._traj_infos))
         super().log_diagnostics(itr, prefix=prefix)
         self._new_completed_trajs = 0
 

@@ -1,39 +1,42 @@
 import torch
-import os
-from collections import namedtuple
 import wandb
+from collections import namedtuple
 from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel, DmlabEncoderModelNorm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
-from rlpyt.models.mlp import MlpModel
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
+from rlpyt.ul.models.ul.lstm_policy import LstmPolicyModel
+from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 
 OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["ValPredLoss"])
 
 
-class VelRegressBc(BaseUlAlgorithm):
+class LstmVelRegressBc(BaseUlAlgorithm):
     opt_info_fields = tuple(f for f in OptInfo._fields)
 
     def __init__(
             self,
             delta_T=0,
-            batch_T=1,
-            batch_B=512,
+            batch_T=64,  # as the horizon of policy
+            warmup_T=0,
+            batch_B=16,
             clip_grad_norm=10.,
             validation_split=0.0,  # used for calculating num of epoch
             with_validation=True,
             latent_size=256,
             hidden_sizes=512,
-            mlp_hidden_layers=(128, 64, 16),
+            lstm_layers=2,
             action_dim=4,
+            attitude_dim=9,
+            state_latent_dim=256,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
             EncoderCls=DmlabEncoderModelNorm,
-            MlpCls=MlpModel,
+            PolicyCls=LstmPolicyModel,
             state_dict_filename=None,
             sched_kwargs=None,
             optim_kwargs=None,
@@ -61,10 +64,20 @@ class VelRegressBc(BaseUlAlgorithm):
             latent_size=self.latent_size,
             **self.encoder_kwargs,
         )
-        self.policy = self.MlpCls(
-            input_size=self.encoder.output_size,
-            hidden_sizes=self.mlp_hidden_layers,
-            output_size=self.action_dim,
+        self.state_projector = torch.nn.Linear(
+            in_features=self.attitude_dim,
+            out_features=self.state_latent_dim,
+            bias=False
+        )
+        self.policy = self.PolicyCls(
+            conv_output_size=self.encoder.output_size,
+            latent_size=self.latent_size,
+            action_dim=self.action_dim,
+            hidden_sizes=self.hidden_sizes,
+            num_layers=self.lstm_layers,
+            state_latent_size=self.state_latent_dim,
+            rnn_horizon=self.batch_T,
+            train_batch=self.batch_B
         )
         if self.state_dict_filename is not None:
             logger.log('models loading state dict ....')
@@ -79,6 +92,7 @@ class VelRegressBc(BaseUlAlgorithm):
         else:
             logger.log('models has not loaded any pretrained model yet!')
         self.encoder.to(self.device)
+        self.state_projector.to(self.device)
         self.policy.to(self.device)
 
         self.optim_initialize(epochs)
@@ -102,21 +116,25 @@ class VelRegressBc(BaseUlAlgorithm):
         opt_info.predLoss.append(pred_loss.item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
-
         return opt_info
 
     def pred_loss(self, samples):
-        obs = samples.observations[0]
-        target_vel = samples.velocities[0]
+        obs = samples.observations
+        vel_states = samples.velocities
+        attitude_states = samples.attitudes
 
-        b, f, c, h, w = obs.shape
-        obs = obs.view(b*f, c, h, w)  # apply frame stack if f>1
-        obs, target_vel = buffer_to((obs, target_vel), device=self.device)
+        t, b, f, c, h, w = obs.shape
+        obs = obs.view(t*b*f, c, h, w)  # apply frame stack if f>1
+        obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
             conv_out = self.encoder.conv(obs)
             conv_out.detach_()
-        pred_vel = self.policy(conv_out.detach().reshape(b*f, -1))
-        pred_loss = self.pred_loss_fn(pred_vel, target_vel)
+        curr_states = attitude_states.reshape(t*b, -1)
+        states_embedding = self.state_projector(curr_states).reshape(t, b, -1)
+        pred_vel_logits, _ = self.policy(conv_out.detach(), states_embedding)  # pred_vel shape: [T, B, act_dim]
+        pred_vel_logits = pred_vel_logits[self.warmup_T:]
+        vel_states = vel_states[self.warmup_T:]
+        pred_loss = self.pred_loss_fn(pred_vel_logits, vel_states)
         return pred_loss
 
     def validation(self, itr):
@@ -129,13 +147,14 @@ class VelRegressBc(BaseUlAlgorithm):
                 pred_loss = self.pred_loss(samples)
             val_info.ValPredLoss.append(pred_loss.item())
         self.optimizer.zero_grad()
-        logger.log('.. validation loss completed')
+        logger.log('validation loss completed...')
         return val_info
 
     def state_dict(self):
         return dict(
             encoder=self.encoder.state_dict(),
-            mlp_head=self.policy.state_dict()
+            state_projector=self.state_projector.state_dict(),
+            mlp_head=self.policy.state_dict(),
         )
 
     def load_state_dict(self, initial_state_dict):
@@ -144,18 +163,22 @@ class VelRegressBc(BaseUlAlgorithm):
 
     def eval(self):
         self.encoder.eval()  # in case of batch norm
+        self.state_projector.eval()
         self.policy.eval()
 
     def train(self):
         self.encoder.train()
+        self.state_projector.train()
         self.policy.train()
 
     def parameters(self):
         yield from self.encoder.parameters()
+        yield from self.state_projector.parameters()
         yield from self.policy.parameters()
 
     def named_parameters(self):
         yield from self.encoder.named_parameters()
+        yield from self.state_projector.named_parameters()
         yield from self.policy.named_parameters()
 
     def load_replay(self, with_validation=True):
@@ -169,4 +192,4 @@ class VelRegressBc(BaseUlAlgorithm):
         return example
 
     def wandb_log_code(self):
-        wandb.save('./rlpyt/ul/algos/downstreams/bc_vel_regressor.py')
+        wandb.save('./rlpyt/ul/algos/downstreams/lstm_vel_regressor.py')

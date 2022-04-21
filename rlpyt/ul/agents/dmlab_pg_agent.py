@@ -1,9 +1,6 @@
-
 import torch
 from collections import OrderedDict
-
-from rlpyt.agents.base import (AgentStep, BaseAgent, RecurrentAgentMixin,
-    AlternatingRecurrentAgentMixin)
+from rlpyt.agents.base import (AgentStep, BaseAgent, RecurrentAgentMixin, AlternatingRecurrentAgentMixin)
 from rlpyt.ul.models.rl.dmlab_rl_models import DmlabPgLstmModel
 from rlpyt.utils.buffer import buffer_to, buffer_func, buffer_method
 from rlpyt.distributions.categorical import Categorical, DistInfo
@@ -11,9 +8,7 @@ from rlpyt.utils.collections import namedarraytuple
 from rlpyt.agents.pg.base import AgentInfo
 from rlpyt.utils.logging import logger
 
-
-AgentInfoRnnConv = namedarraytuple("AgentInfoRnnConv",
-    AgentInfo._fields + ("prev_rnn_state", "conv"))
+AgentInfoRnnConv = namedarraytuple("AgentInfoRnnConv", AgentInfo._fields + ("prev_rnn_state", "conv"))
 
 
 class DmlabPgBaseAgent(BaseAgent):
@@ -120,6 +115,5 @@ class DmlabPgLstmAgent(RecurrentAgentMixin, DmlabPgBaseAgent):
     pass
 
 
-class DmlabPgLstmAlternatingAgent(AlternatingRecurrentAgentMixin,
-        DmlabPgBaseAgent):
+class DmlabPgLstmAlternatingAgent(AlternatingRecurrentAgentMixin, DmlabPgBaseAgent):
     pass

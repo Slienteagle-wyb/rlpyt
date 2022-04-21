@@ -1,15 +1,11 @@
-
 import numpy as np
 import torch
 from collections import namedtuple
-
 from rlpyt.algos.base import RlAlgorithm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
-from rlpyt.replays.non_sequence.uniform import (UniformReplayBuffer,
-    AsyncUniformReplayBuffer)
-from rlpyt.replays.non_sequence.time_limit import (TlUniformReplayBuffer,
-    AsyncTlUniformReplayBuffer)
+from rlpyt.replays.non_sequence.uniform import (UniformReplayBuffer, AsyncUniformReplayBuffer)
+from rlpyt.replays.non_sequence.time_limit import (TlUniformReplayBuffer, AsyncTlUniformReplayBuffer)
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.distributions.gaussian import Gaussian
@@ -18,14 +14,10 @@ from rlpyt.utils.tensor import valid_mean
 from rlpyt.algos.utils import valid_from_done
 
 
-OptInfo = namedtuple("OptInfo",
-    ["q1Loss", "q2Loss", "piLoss",
-    "q1GradNorm", "q2GradNorm", "piGradNorm",
-    "q1", "q2", "piMu", "piLogStd", "qMeanDiff", "alpha"])
-SamplesToBuffer = namedarraytuple("SamplesToBuffer",
-    ["observation", "action", "reward", "done"])
-SamplesToBufferTl = namedarraytuple("SamplesToBufferTl",
-    SamplesToBuffer._fields + ("timeout",))
+OptInfo = namedtuple("OptInfo", ["q1Loss", "q2Loss", "piLoss", "q1GradNorm", "q2GradNorm", "piGradNorm",
+                     "q1", "q2", "piMu", "piLogStd", "qMeanDiff", "alpha"])
+SamplesToBuffer = namedarraytuple("SamplesToBuffer", ["observation", "action", "reward", "done"])
+SamplesToBufferTl = namedarraytuple("SamplesToBufferTl", SamplesToBuffer._fields + ("timeout",))
 
 
 class SAC(RlAlgorithm):
@@ -43,7 +35,7 @@ class SAC(RlAlgorithm):
             target_update_tau=0.005,  # tau=1 for hard update.
             target_update_interval=1,  # 1000 for hard update, 1 for soft.
             learning_rate=3e-4,
-            fixed_alpha=None, # None for adaptive alpha, float for any fixed value
+            fixed_alpha=None,  # None for adaptive alpha, float for any fixed value
             OptimCls=torch.optim.Adam,
             optim_kwargs=None,
             initial_optim_state_dict=None,  # for all of them.
@@ -66,8 +58,7 @@ class SAC(RlAlgorithm):
         del batch_size  # Property.
         save__init__args(locals())
 
-    def initialize(self, agent, n_itr, batch_spec, mid_batch_reset, examples,
-            world_size=1, rank=0):
+    def initialize(self, agent, n_itr, batch_spec, mid_batch_reset, examples, world_size=1, rank=0):
         """Stores input arguments and initializes replay buffer and optimizer.
         Use in non-async runners.  Computes number of gradient updates per
         optimization iteration as `(replay_ratio * sampler-batch-size /

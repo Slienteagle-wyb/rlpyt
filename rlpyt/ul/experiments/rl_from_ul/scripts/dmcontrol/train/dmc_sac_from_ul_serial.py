@@ -9,7 +9,7 @@ from rlpyt.samplers.parallel.cpu.collectors import CpuResetCollector
 from rlpyt.ul.envs.dmcontrol import make
 from rlpyt.ul.algos.rl_from_ul.rad_sac_from_ul import RadSacFromUl
 from rlpyt.ul.agents.dmc_sac_agent import SacAgent
-from rlpyt.adam.envstep_runner import MinibatchRlEvalEnvStep
+from rlpyt.ul.runners.envstep_runner import MinibatchRlEvalEnvStep
 from rlpyt.utils.logging.context import logger_context
 from rlpyt.utils.launching.variant import load_variant, update_config
 

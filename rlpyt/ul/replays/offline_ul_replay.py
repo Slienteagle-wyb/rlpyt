@@ -5,7 +5,7 @@ from rlpyt.utils.misc import extract_sequences
 from rlpyt.utils.collections import namedarraytuple
 
 BatchSamples = namedarraytuple('BatchSamples', ['observations', 'translations', 'rotations', 'prev_translations',
-                                                'prev_rotations', 'velocities', 'directions'])
+                                                'prev_rotations', 'velocities', 'directions', 'attitudes'])
 
 
 class OfflineUlReplayBuffer:
@@ -35,7 +35,8 @@ class OfflineUlReplayBuffer:
                                       translation=np.zeros(translation_dim, dtype=np.float32),
                                       rotation=np.zeros(rotation_dim, dtype=np.float32),
                                       velocity=np.zeros(4, dtype=np.float32),
-                                      direction=np.zeros(1, dtype=np.float32))
+                                      direction=np.zeros(1, dtype=np.float32),
+                                      attitude=np.zeros(9, dtype=np.float32))
         self._load_replay(replay_buffer)
 
     def _load_replay(self, replay_buffer):
@@ -79,6 +80,9 @@ class OfflineUlReplayBuffer:
                                  T_idxs - 1, B_idxs, self.forward_step + 2)
         directions = buffer_func(self.samples.direction, extract_sequences,
                                  T_idxs - 1, B_idxs, self.forward_step + 2)
+        attitudes = buffer_func(self.samples.attitude,
+                                extract_sequences,
+                                T_idxs - 1, B_idxs, self.forward_step + 2)
         batch = BatchSamples(
             observations=self.extract_observation(T_idxs, B_idxs, self.forward_step),
             translations=translations[1:],
@@ -86,7 +90,8 @@ class OfflineUlReplayBuffer:
             rotations=rotations[1:],
             prev_rotations=rotations[:-1],
             velocities=velocities[1:],
-            directions=directions[1:]
+            directions=directions[1:],
+            attitudes=attitudes[1:]
         )
         return torchify_buffer(batch)
 

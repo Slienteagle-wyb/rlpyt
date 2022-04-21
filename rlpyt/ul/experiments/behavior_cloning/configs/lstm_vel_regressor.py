@@ -4,16 +4,18 @@ configs = dict()
 config = dict(
     algo=dict(
         delta_T=0,  # forward predict step
-        batch_T=1,
-        batch_B=512,
+        batch_T=32,
+        batch_B=16,
+        warmup_T=0,
         latent_size=256,
         hidden_sizes=512,
-        mlp_hidden_layers=[128, 64, 16],
+        lstm_layers=2,
         action_dim=4,
+        attitude_dim=9,
         clip_grad_norm=10.,
         validation_split=0.0,
         with_validation=True,
-        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220401/235029/mst_pretrain/mst_0327l_run1/params.pkl',
+        state_dict_filename=f'/home/yibo/spaces/snap_shots/rlpyt_drone_representation/20220326/192341/mst_pretrain/params.pkl',
     ),
     encoder=dict(
         use_fourth_layer=True,
@@ -48,7 +50,7 @@ config = dict(
         data_path='/home/yibo/spaces/datasets/il_datasets',
         episode_length=4096,
         num_runs=3,
-        forward_step=0,
+        forward_step=63,
         translation_dim=3,
         rotation_dim=6,
     ),
@@ -58,11 +60,11 @@ config = dict(
             data_path='/home/yibo/spaces/datasets/il_val_datasets',
             episode_length=4096,
             num_runs=1,
-            forward_step=0,
+            forward_step=63,
             translation_dim=3,
             rotation_dim=6,
         ),
-    name="vel_regressor",  # probably change this with the filepath
+    name="lstm_vel_regressor",  # probably change this with the filepath
 )
 
-configs["vel_regressor"] = config
+configs["lstm_vel_regressor"] = config

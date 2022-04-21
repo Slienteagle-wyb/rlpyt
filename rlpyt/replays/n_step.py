@@ -1,8 +1,5 @@
-
 import math
 import numpy as np
-
-
 from rlpyt.replays.base import BaseReplayBuffer
 from rlpyt.utils.buffer import buffer_from_example, get_leading_dims
 from rlpyt.algos.utils import discount_return_n_step
@@ -46,12 +43,12 @@ class BaseNStepReturnBuffer(BaseReplayBuffer):
         self.n_step_return = n_step_return
         self.t = 0  # Cursor (in T dimension).
         self.samples = buffer_from_example(example, (T, B),
-            share_memory=self.async_)
+                                           share_memory=self.async_)
         if n_step_return > 1:
             self.samples_return_ = buffer_from_example(example.reward, (T, B),
-                share_memory=self.async_)
+                                                       share_memory=self.async_)
             self.samples_done_n = buffer_from_example(example.done, (T, B),
-                share_memory=self.async_)
+                                                      share_memory=self.async_)
         else:
             self.samples_return_ = self.samples.reward
             self.samples_done_n = self.samples.done
@@ -95,14 +92,14 @@ class BaseNStepReturnBuffer(BaseReplayBuffer):
             return_dest = self.samples_return_[t - nm1: t - nm1 + T]
             done_n_dest = self.samples_done_n[t - nm1: t - nm1 + T]
             discount_return_n_step(reward, done, n_step=self.n_step_return,
-                discount=self.discount, return_dest=return_dest,
-                done_n_dest=done_n_dest)
+                                   discount=self.discount, return_dest=return_dest,
+                                   done_n_dest=done_n_dest)
         else:  # Wrap (copies); Let it (wrongly) wrap at first call.
             idxs = np.arange(t - nm1, t + T) % self.T
             reward = s.reward[idxs]
             done = s.done[idxs]
             dest_idxs = idxs[:-nm1]
             return_, done_n = discount_return_n_step(reward, done,
-                n_step=self.n_step_return, discount=self.discount)
+                                                     n_step=self.n_step_return, discount=self.discount)
             self.samples_return_[dest_idxs] = return_
             self.samples_done_n[dest_idxs] = done_n

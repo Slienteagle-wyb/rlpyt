@@ -1,4 +1,3 @@
-
 import sys
 import copy
 
@@ -143,7 +142,6 @@ variant_levels.append(VariantLevel(keys, values, dir_names))
 
 
 variants, log_dirs = make_variants(*variant_levels)
-
 
 num_variants = len(variants)
 variants_per = num_variants // num_computers

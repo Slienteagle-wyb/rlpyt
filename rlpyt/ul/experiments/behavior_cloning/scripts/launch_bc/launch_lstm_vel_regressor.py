@@ -9,21 +9,16 @@ affinity_code = encode_affinity(
     contexts_per_gpu=2,  # How many experiment to share each GPU
 )
 print(affinity_code)
-script = "rlpyt/ul/experiments/behavior_cloning/scripts/train_bc/train_vel_regressor.py"
+script = "rlpyt/ul/experiments/behavior_cloning/scripts/train_bc/train_lstm_vel_regressor.py"
 runs_per_setting = 1
-experiment_title = "mst_vel_regressor"
-default_config_key = "vel_regressor"
+experiment_title = "mst_lstm_vel_regressor"
+default_config_key = "lstm_vel_regressor"
 variant_levles = list()
 
-# keys = [('algo', 'batch_T')]
-# values = [[32, ]]
-# # values = list(zip(values))
-# dir_names = ['stc_0322_run1']
-# variant_levles.append(VariantLevel(keys, values, dir_names))
 
 keys = [('optim', 'lr'), ('runner', 'wandb_log_name')]
-values = [[5e-4, 'mst_0402_partial_lr_5e-4_baseline2']]
-dir_name = ['learning_rate_0.0005']
+values = [[5e-4, 'mst_0406_partial_lr_5e-4_lstm_len64_nowarmup'], [2.5e-4, 'mst_0406_partial_lr_2.5e-4_lstm_len64_nowarmup']]
+dir_name = ['learning_rate_0.0005', 'learning_rate_0.00025']
 variant_levles.append(VariantLevel(keys, values, dir_name))
 
 variants, log_dirs = make_variants(*variant_levles)
@@ -37,5 +32,5 @@ run_experiments(
     runs_per_setting=runs_per_setting,
     variants=variants,
     log_dirs=log_dirs,
-    common_args=(default_config_key,),
+    common_args=(default_config_key,)
 )

@@ -1,7 +1,4 @@
-
 import sys
-import copy
-
 from rlpyt.utils.launching.affinity import encode_affinity, quick_affinity_code
 from rlpyt.utils.launching.exp_launcher import run_experiments
 from rlpyt.utils.launching.variant import make_variants, VariantLevel
@@ -19,14 +16,12 @@ affinity_code = quick_affinity_code(contexts_per_gpu=2, alternating=True)
 runs_per_setting = 2
 experiment_title = "dmlab_ppo_from_cpc_1"
 variant_levels_1 = list()
-# variant_levels_2 = list()
 
 n_updates = [20e3, 40e3]
 values = list(zip(n_updates))
 dir_names = ["{}updates".format(*v) for v in values]
 keys = [("pretrain", "n_updates")]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
-
 
 batch_Bs = [8, 16, 32]
 batch_Ts = [64, 32, 16]
@@ -35,7 +30,6 @@ values = list(zip(batch_Bs, batch_Ts, warmup_Ts))
 dir_names = ["{}B_{}T_{}wmpT".format(*v) for v in values]
 keys = [("pretrain", "batch_B"), ("pretrain", "batch_T"), ("pretrain", "warmup_T")]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
-
 
 levels = [
     "lasertag_three_opponents_small",
@@ -51,8 +45,6 @@ values = list(zip(levels, entropies))
 dir_names = levels
 keys = [("env", "level"), ("algo", "entropy_loss_coeff")]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
-# variant_levels_2.append(VariantLevel(keys, values, dir_names))
-
 
 ##################################################
 # RL CONFIG (mostly)
@@ -65,19 +57,18 @@ pretrain_algos = ["CPC"]
 replays = ["20200807/dmlab_replaysave_1"]
 model_dirs = ["/data/adam/ul4rl/models/20200826/dmlab_cpc_pretrain_1/"]
 values = list(zip(
-    n_steps, 
-    pretrain_algos, 
-    replays, 
+    n_steps,
+    pretrain_algos,
+    replays,
     model_dirs,
 ))
 dir_names = ["RlFromUl"]  # TRAIN SCRIPT SPLITS OFF THIS
 keys = [("runner", "n_steps"),
-    ("pretrain", "algo"), 
-    ("pretrain", "replay"),
-    ("pretrain", "model_dir"), 
-]
+        ("pretrain", "algo"),
+        ("pretrain", "replay"),
+        ("pretrain", "model_dir"),
+        ]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
-
 
 stop_grads = [True]
 values = list(zip(stop_grads))
@@ -86,7 +77,6 @@ keys = [("model", "stop_conv_grad")]
 variant_levels_1.append(VariantLevel(keys, values, dir_names))
 
 variants_1, log_dirs_1 = make_variants(*variant_levels_1)
-# variants_2, log_dirs_2 = make_variants(*variant_levels_2)
 
 variants = variants_1  # + variants_2
 log_dirs = log_dirs_1  # + log_dirs_2

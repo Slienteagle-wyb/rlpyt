@@ -1,5 +1,3 @@
-
-
 from rlpyt.samplers.collections import BatchSpec, TrajInfo, Samples
 from rlpyt.utils.quick_args import save__init__args
 
@@ -40,8 +38,7 @@ class BaseSampler:
             eval_max_trajectories=None,  # Optional earlier cutoff.
             ):
         eval_max_steps = None if eval_max_steps is None else int(eval_max_steps)
-        eval_max_trajectories = (None if eval_max_trajectories is None else
-            int(eval_max_trajectories))
+        eval_max_trajectories = (None if eval_max_trajectories is None else int(eval_max_trajectories))
         save__init__args(locals())
         self.batch_spec = BatchSpec(batch_T, batch_B)
         self.mid_batch_reset = CollectorCls.mid_batch_reset
@@ -53,7 +50,7 @@ class BaseSampler:
 
     def obtain_samples(self, itr):
         """Execute agent-environment interactions and return data batch."""
-        raise NotImplementedError  # type: Samples
+        raise NotImplementedError
 
     def evaluate_agent(self, itr):
         """Run offline agent evaluation, if applicable."""

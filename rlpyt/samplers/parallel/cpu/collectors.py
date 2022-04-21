@@ -32,21 +32,23 @@ class CpuResetCollector(DecorrelatingStartCollector):
         agent_buf.prev_action[0] = action  # Leading prev_action.
         env_buf.prev_reward[0] = reward
         self.agent.sample_mode(itr)
+        # total interact agent steps of every itr(optimize)
         for t in range(self.batch_T):
             env_buf.observation[t] = observation
             # Agent inputs and outputs are torch tensors.
             act_pyt, agent_info = self.agent.step(obs_pyt, act_pyt, rew_pyt)
             action = numpify_buffer(act_pyt)
+            # get the transition from every env
             for b, env in enumerate(self.envs):
                 # Environment inputs and outputs are numpy arrays.
                 o, r, d, env_info = env.step(action[b])
-                traj_infos[b].step(observation[b], action[b], r, d, agent_info[b],
-                    env_info)
+                traj_infos[b].step(observation[b], action[b], r, d, agent_info[b], env_info)
                 if getattr(env_info, "traj_done", d):
                     completed_infos.append(traj_infos[b].terminate(o))
                     traj_infos[b] = self.TrajInfoCls()
                     o = env.reset()
                 if d:
+                    # reset agent relevant info if needed
                     self.agent.reset_one(idx=b)
                 observation[b] = o
                 reward[b] = r

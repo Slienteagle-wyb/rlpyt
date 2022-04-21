@@ -1,12 +1,12 @@
 import torch
-import os
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel, DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
 from rlpyt.models.mlp import MlpModel
+from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
@@ -15,7 +15,7 @@ OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["ValPredLoss"])
 
 
-class VelRegressBc(BaseUlAlgorithm):
+class StateVelRegressBc(BaseUlAlgorithm):
     opt_info_fields = tuple(f for f in OptInfo._fields)
 
     def __init__(
@@ -28,8 +28,10 @@ class VelRegressBc(BaseUlAlgorithm):
             with_validation=True,
             latent_size=256,
             hidden_sizes=512,
-            mlp_hidden_layers=(128, 64, 16),
+            mlp_hidden_layers=None,
             action_dim=4,
+            attitude_dim=9,
+            state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
             EncoderCls=DmlabEncoderModelNorm,
@@ -61,8 +63,13 @@ class VelRegressBc(BaseUlAlgorithm):
             latent_size=self.latent_size,
             **self.encoder_kwargs,
         )
+        self.state_projector = ByolMlpModel(
+            input_dim=self.attitude_dim,
+            latent_size=self.state_latent_dim,
+            hidden_size=self.latent_size
+        )
         self.policy = self.MlpCls(
-            input_size=self.encoder.output_size,
+            input_size=self.encoder.output_size + self.state_latent_dim,
             hidden_sizes=self.mlp_hidden_layers,
             output_size=self.action_dim,
         )
@@ -79,6 +86,7 @@ class VelRegressBc(BaseUlAlgorithm):
         else:
             logger.log('models has not loaded any pretrained model yet!')
         self.encoder.to(self.device)
+        self.state_projector.to(self.device)
         self.policy.to(self.device)
 
         self.optim_initialize(epochs)
@@ -107,16 +115,19 @@ class VelRegressBc(BaseUlAlgorithm):
 
     def pred_loss(self, samples):
         obs = samples.observations[0]
-        target_vel = samples.velocities[0]
+        vel_states = samples.velocities[0]
+        attitude_states = samples.attitudes[0]
 
         b, f, c, h, w = obs.shape
         obs = obs.view(b*f, c, h, w)  # apply frame stack if f>1
-        obs, target_vel = buffer_to((obs, target_vel), device=self.device)
+        obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
             conv_out = self.encoder.conv(obs)
             conv_out.detach_()
-        pred_vel = self.policy(conv_out.detach().reshape(b*f, -1))
-        pred_loss = self.pred_loss_fn(pred_vel, target_vel)
+        state_embedding = self.state_projector(attitude_states)
+        policy_input = torch.cat((conv_out.detach().reshape(b*f, -1), state_embedding), dim=-1)
+        pred_vel = self.policy(policy_input)
+        pred_loss = self.pred_loss_fn(pred_vel, vel_states)
         return pred_loss
 
     def validation(self, itr):
@@ -135,6 +146,7 @@ class VelRegressBc(BaseUlAlgorithm):
     def state_dict(self):
         return dict(
             encoder=self.encoder.state_dict(),
+            state_projector=self.state_projector.state_dict(),
             mlp_head=self.policy.state_dict()
         )
 
@@ -144,18 +156,22 @@ class VelRegressBc(BaseUlAlgorithm):
 
     def eval(self):
         self.encoder.eval()  # in case of batch norm
+        self.state_projector.eval()
         self.policy.eval()
 
     def train(self):
         self.encoder.train()
+        self.state_projector.train()
         self.policy.train()
 
     def parameters(self):
         yield from self.encoder.parameters()
+        yield from self.state_projector.parameters()
         yield from self.policy.parameters()
 
     def named_parameters(self):
         yield from self.encoder.named_parameters()
+        yield from self.state_projector.named_parameters()
         yield from self.policy.named_parameters()
 
     def load_replay(self, with_validation=True):
@@ -169,4 +185,4 @@ class VelRegressBc(BaseUlAlgorithm):
         return example
 
     def wandb_log_code(self):
-        wandb.save('./rlpyt/ul/algos/downstreams/bc_vel_regressor.py')
+        wandb.save('./rlpyt/ul/algos/downstreams/state_mlp_vel_regressor.py')

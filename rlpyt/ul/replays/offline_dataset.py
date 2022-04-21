@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import os
 import cv2
 import glob
@@ -10,7 +9,8 @@ from torch.utils.data import Dataset
 from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.buffer import buffer_from_example
 
-OfflineSamples = namedarraytuple('OfflineSamples', ['observation', 'translation', 'rotation', 'velocity', 'direction'])
+OfflineSamples = namedarraytuple('OfflineSamples', ['observation', 'translation', 'rotation', 'velocity', 'direction',
+                                                    'attitude'])
 
 
 class OfflineDatasets(Dataset):
@@ -20,14 +20,14 @@ class OfflineDatasets(Dataset):
                  num_runs,
                  buffer_example,
                  img_size,
-                 vel_command_dim=4
+                 vel_command_dim=4,
                  ):
         self.data_path = data_path
         self.img_size = img_size
         self.preprocess = T.Compose([T.ToTensor(),
                                      T.Resize((self.img_size, self.img_size))])
-        self.T = episode_length  # now is 2
-        self.B = num_runs  # now is 200
+        self.T = episode_length
+        self.B = num_runs
         self.t = 0
         self.len = self.T * self.B
         self.vel_command_dim = vel_command_dim,
@@ -35,7 +35,7 @@ class OfflineDatasets(Dataset):
         self.offlinesamples = OfflineSamples
         self.current_line = None
         self.next_line = None
-        self.extract_data()
+        self.extract_img()
 
     # extract and tensorfy the data
     def extract_data(self):
@@ -59,13 +59,16 @@ class OfflineDatasets(Dataset):
                 image = self.preprocess(image)
 
                 trans, rotation = self.rotation_trans(self.current_line, self.next_line)
-                velocity = action[-4:]
+                velocity = action[-4:]  # extract the velocity from labels
+                attitude_quad = action[:4]
+                attitude_matrix = self.quad_to_matrix(attitude_quad)
                 direction_label = self.extract_direction(velocity)
                 samples = self.offlinesamples(observation=image,
                                               translation=np.array(trans, dtype=np.float32),
                                               rotation=np.array(rotation, dtype=np.float32),
                                               velocity=np.array(velocity, dtype=np.float32),
-                                              direction=np.array(direction_label, dtype=np.float32))
+                                              direction=np.array(direction_label, dtype=np.float32),
+                                              attitude=np.array(attitude_matrix, dtype=np.float32))
                 self.samples[i][run_idx] = samples
                 if index % self.T == 0:
                     # scale factor that divides all actions by max(x, y, z) across a run, for every run
@@ -89,13 +92,19 @@ class OfflineDatasets(Dataset):
                 index += 1
                 image = cv2.imread(img_name)
                 action = actions[i]
-                velocity = self.normalize_v(action)
+                velocity = action[:4]  # vx_body, vy_body, vz_body, v_yaw
+                velocity = self.normalize_v(velocity)
+                attitude_quad = action[4:]  # qx, qy, qz, qw
+                attitude_matrix = R.from_quat(attitude_quad).as_matrix()
+                attitude_matrix = attitude_matrix.reshape(-1)
                 img_tensor = self.preprocess(image)
                 sample = self.offlinesamples(observation=img_tensor,
                                              translation=np.zeros(3),
                                              rotation=np.zeros(6),
                                              velocity=np.array(velocity, dtype=np.float32),
-                                             direction=np.zeros(1))
+                                             direction=np.zeros(1),
+                                             attitude=np.array(attitude_matrix, dtype=np.float32)
+                                             )
                 self.samples[i][run_idx] = sample
                 if index % self.T == 0:
                     print('had read num of images:', index)
@@ -152,8 +161,8 @@ class OfflineDatasets(Dataset):
         cQw, cQx, cQy, cQz, cPx, cPy, cPz = current_line[:7]
         nQw, nQx, nQy, nQz, nPx, nPy, nPz = next_line[:7]
         delta_p = np.array([cPx - nPx, cPy - nPy, cPz - nPz], dtype=np.float32)
-        q1 = np.array([cQw, cQx, cQy, cQz], np.float32)
-        q2 = np.array([nQw, nQx, nQy, nQz], np.float32)
+        q1 = np.array([cQx, cQy, cQz, cQw], np.float32)
+        q2 = np.array([nQx, nQy, nQz, nQw], np.float32)
         rot1 = R.from_quat(q1)
         rot2 = R.from_quat(q2)
         r = rot1.inv() * rot2
@@ -171,6 +180,13 @@ class OfflineDatasets(Dataset):
         for i, value in enumerate(direction_sign):
             label += np.power(2, i) * value
         return label
+
+    def quad_to_matrix(self, attitude_quad):
+        attitude_quad = np.roll(attitude_quad, -1)
+        rot = R.from_quat(attitude_quad)
+        r_matrix = rot.as_matrix()
+        matrix_list = r_matrix.reshape(-1)
+        return matrix_list
 
     def __len__(self):
         return self.len

@@ -10,6 +10,8 @@ config = dict(
         hidden_sizes=512,
         mlp_hidden_layers=[128, 64, 16],
         action_dim=4,
+        attitude_dim=9,
+        state_latent_dim=64,
         clip_grad_norm=10.,
         validation_split=0.0,
         with_validation=True,
@@ -37,8 +39,8 @@ config = dict(
             lr_k_decay=1.0,
         ),
     runner=dict(
-        n_epochs=int(1000),  # 10k iters counted by num of batch
-        log_interval_updates=int(2e3),  # also apply validate every log_interval_update
+        n_epochs=int(1000),
+        log_interval_updates=int(2e3),
         wandb_log=True,
         wandb_log_name=None,
     ),
@@ -62,7 +64,7 @@ config = dict(
             translation_dim=3,
             rotation_dim=6,
         ),
-    name="vel_regressor",  # probably change this with the filepath
+    name="state_mlp_vel_regressor",  # probably change this with the filepath
 )
 
-configs["vel_regressor"] = config
+configs["state_mlp_vel_regressor"] = config

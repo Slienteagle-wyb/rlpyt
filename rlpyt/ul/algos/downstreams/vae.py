@@ -12,7 +12,6 @@ from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm
 from rlpyt.ul.models.ul.forward_models import SkipConnectForwardAggModel
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 
-
 IGNORE_INDEX = -100  # Mask action samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["reconLoss", "klLoss", "gradNorm"])
 ValInfo = namedtuple("ValInfo", ["reconLoss", "klLoss"])

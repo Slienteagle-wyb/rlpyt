@@ -77,9 +77,10 @@ class BaseUlAlgorithm(UlAlgorithm):
         )
 
         self.lr_scheduler = None
+        sched_slice = self.sched_kwargs.pop('epoch_slice', 1)
         self.lr_scheduler, _ = create_scheduler(
             optimizer=self.optimizer,
-            num_epochs=epochs,
+            num_epochs=epochs // sched_slice,
             sched_kwargs=self.sched_kwargs,
         )
         if self.lr_scheduler is not None:

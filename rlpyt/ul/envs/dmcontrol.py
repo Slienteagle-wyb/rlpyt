@@ -1,10 +1,8 @@
-
 import numpy as np
 import gym
 from gym.wrappers import TimeLimit
 import dmc2gym
 from collections import deque
-
 from rlpyt.envs.gym import GymEnvWrapper
 
 
@@ -55,14 +53,14 @@ class FrameStack(gym.Wrapper):
 
 
 def make(*args, frame_stack=3, from_pixels=True, height=84, width=84,
-        frame_skip=4, **kwargs):
+         frame_skip=4, **kwargs):
     env = dmc2gym.make(*args,
-        frame_skip=frame_skip,
-        visualize_reward=False,
-        from_pixels=from_pixels,
-        height=height,
-        width=width,
-        **kwargs)
+                       frame_skip=frame_skip,
+                       visualize_reward=False,
+                       from_pixels=from_pixels,
+                       height=height,
+                       width=width,
+                       **kwargs)
     if isinstance(env, TimeLimit):
         # Strip the gym TimeLimit wrapper and replace with one which
         # outputs TimeLimit.truncated=True at max_episode_steps - 1,
@@ -73,8 +71,18 @@ def make(*args, frame_stack=3, from_pixels=True, height=84, width=84,
         env = FrameStack(env, k=frame_stack)
     elif frame_stack != 1:
         print("WARNING: dmcontrol.make() requested with frame_stack>1, but not"
-            " doing it on state.")
+              " doing it on state.")
     env = GymEnvWrapper(env)
     env._frame_skip = frame_skip
-
     return env
+
+
+if __name__ == '__main__':
+    a = make(domain_name="cheetah",
+             task_name="run",
+             from_pixels=True,
+             frame_stack=3,
+             frame_skip=4,
+             height=84,
+             width=84).observation_space.shape
+    print(a)

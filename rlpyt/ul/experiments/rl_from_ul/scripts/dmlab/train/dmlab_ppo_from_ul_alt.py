@@ -1,18 +1,11 @@
-
 import sys
 import pprint
 import os.path as osp
-
 from rlpyt.utils.launching.affinity import affinity_from_code
 from rlpyt.samplers.parallel.gpu.alternating_sampler import AlternatingSampler
 from rlpyt.samplers.parallel.gpu.collectors import GpuWaitResetCollector
-# from rlpyt.envs.atari.atari_env import AtariTrajInfo
-# from rlpyt.adam.atari_env import AtariEnv84
 from rlpyt.ul.envs.dmlab import DmlabEnv
 from rlpyt.algos.pg.ppo import PPO
-# from rlpyt.agents.dqn.atari.atari_dqn_agent import AtariDqnAgent
-# from rlpyt.ul.agents.atari_dqn_rl_from_ul_agent import AtariDqnRlFromUlAgent
-# from rlpyt.ul.agents.atari_pg_rl_from_ul_agent import AtariPgRlFromUlAgent
 from rlpyt.ul.agents.dmlab_pg_agent import DmlabPgLstmAlternatingAgent
 from rlpyt.runners.minibatch_rl import MinibatchRl
 from rlpyt.utils.logging.context import logger_context

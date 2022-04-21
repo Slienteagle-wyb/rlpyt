@@ -1,4 +1,3 @@
-
 from rlpyt.samplers.base import BaseSampler
 from rlpyt.samplers.buffer import build_samples_buffer
 from rlpyt.utils.logging import logger
@@ -16,14 +15,16 @@ class SerialSampler(BaseSampler):
     ones.
     """
 
+    # collector is the worker for interact with env and collect transition
+    # sampler as the local worker for managing rest workers
     def __init__(self, *args, CollectorCls=CpuResetCollector,
-            eval_CollectorCls=SerialEvalCollector, **kwargs):
+                 eval_CollectorCls=SerialEvalCollector, **kwargs):
         super().__init__(*args, CollectorCls=CollectorCls,
-            eval_CollectorCls=eval_CollectorCls, **kwargs)
+                         eval_CollectorCls=eval_CollectorCls, **kwargs)
 
     def initialize(
             self,
-            agent,
+            agent,  # agent be passed in at the runner script start_up()
             affinity=None,
             seed=None,
             bootstrap_value=False,
@@ -40,34 +41,36 @@ class SerialSampler(BaseSampler):
         Returns a structure of inidividual examples for data fields such as `observation`,
         `action`, etc, which can be used to allocate a replay buffer.
         """
-        B = self.batch_spec.B
+        B = self.batch_spec.B  # num of parallel env instance to instantiate
         envs = [self.EnvCls(**self.env_kwargs) for _ in range(B)]
-
-        set_envs_seeds(envs, seed)  # Random seed made in runner.
-
+        # Random seed made in runner, just for gym style env
+        # will be ignored by custom env without env internal seed
+        set_envs_seeds(envs, seed)
         global_B = B * world_size
         env_ranks = list(range(rank * B, (rank + 1) * B))
-        agent.initialize(envs[0].spaces, share_memory=False,
-            global_B=global_B, env_ranks=env_ranks)
-        samples_pyt, samples_np, examples = build_samples_buffer(agent, envs[0],
-            self.batch_spec, bootstrap_value, agent_shared=False,
-            env_shared=False, subprocess=False)
+        # global_B, env_ranks is for env parallel
+        agent.initialize(envs[0].spaces, share_memory=False, global_B=global_B, env_ranks=env_ranks)
+        # buffer for sampler to store the collected batch from every collector
+        samples_pyt, samples_np, examples = build_samples_buffer(agent, envs[0], self.batch_spec,
+                                                                 bootstrap_value, agent_shared=False,
+                                                                 env_shared=False, subprocess=False)
         if traj_info_kwargs:
             for k, v in traj_info_kwargs.items():
                 setattr(self.TrajInfoCls, "_" + k, v)  # Avoid passing at init.
+
         collector = self.CollectorCls(
             rank=0,
             envs=envs,
             samples_np=samples_np,
-            batch_T=self.batch_spec.T,
+            batch_T=self.batch_spec.T,  # batch length of collector
             TrajInfoCls=self.TrajInfoCls,
             agent=agent,
             global_B=global_B,
             env_ranks=env_ranks,  # Might get applied redundantly to agent.
         )
+
         if self.eval_n_envs > 0:  # May do evaluation.
-            eval_envs = [self.EnvCls(**self.eval_env_kwargs)
-                for _ in range(self.eval_n_envs)]
+            eval_envs = [self.EnvCls(**self.eval_env_kwargs) for _ in range(self.eval_n_envs)]
             set_envs_seeds(eval_envs, seed)
             eval_CollectorCls = self.eval_CollectorCls or SerialEvalCollector
             self.eval_collector = eval_CollectorCls(
@@ -78,8 +81,7 @@ class SerialSampler(BaseSampler):
                 max_trajectories=self.eval_max_trajectories,
             )
 
-        agent_inputs, traj_infos = collector.start_envs(
-            self.max_decorrelation_steps)
+        agent_inputs, traj_infos = collector.start_envs(self.max_decorrelation_steps)
         collector.start_agent()
 
         self.agent = agent

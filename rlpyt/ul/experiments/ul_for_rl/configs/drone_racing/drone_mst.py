@@ -31,9 +31,12 @@ config = dict(
     sched=dict(
             sched_id='cosine',
             min_lr=1e-6,
+            sched_slice=2,
             warmup_lr_init=1e-5,
             warmup_epochs=50,
             lr_k_decay=1.0,
+            lr_cycle_decay=0.2,
+            lr_cycle_limit=2,
         ),
     runner=dict(
         n_epochs=int(1000),  # epoch==200 updates now

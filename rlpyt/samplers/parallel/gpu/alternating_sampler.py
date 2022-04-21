@@ -1,7 +1,5 @@
-
 from rlpyt.samplers.parallel.gpu.sampler import GpuSamplerBase
-from rlpyt.samplers.parallel.gpu.action_server import (AlternatingActionServer,
-    NoOverlapAlternatingActionServer)
+from rlpyt.samplers.parallel.gpu.action_server import (AlternatingActionServer, NoOverlapAlternatingActionServer)
 
 
 class AlternatingSamplerBase(GpuSamplerBase):
@@ -78,6 +76,5 @@ class AlternatingSampler(AlternatingActionServer, AlternatingSamplerBase):
     pass  # These use the same Gpu collectors.
 
 
-class NoOverlapAlternatingSampler(NoOverlapAlternatingActionServer,
-        AlternatingSamplerBase):
+class NoOverlapAlternatingSampler(NoOverlapAlternatingActionServer, AlternatingSamplerBase):
     pass

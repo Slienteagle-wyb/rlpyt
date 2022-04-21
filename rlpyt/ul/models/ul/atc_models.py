@@ -1,7 +1,13 @@
 import torch
-
 from rlpyt.models.mlp import MlpModel
 from rlpyt.utils.tensor import infer_leading_dims
+
+
+def weight_init(m):
+    """Kaiming_normal is standard for relu networks, sometimes."""
+    if isinstance(m, (torch.nn.Linear, torch.nn.Conv2d)):
+        torch.nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+        torch.nn.init.zeros_(m.bias)
 
 
 class ContrastModel(torch.nn.Module):
@@ -38,6 +44,7 @@ class ByolMlpModel(torch.nn.Module):
             torch.nn.ReLU(inplace=True),
             torch.nn.Linear(hidden_size, latent_size)
         )
+        self.apply(weight_init)
 
     def forward(self, x):
         return self.net(x)
