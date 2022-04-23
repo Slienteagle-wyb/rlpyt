@@ -51,7 +51,7 @@ class OfflineDatasets(Dataset):
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)  # note that the shape of image read by cv2 is (w, h, c)
-                image = cv2.resize(image, (self.img_size, self.img_size))
+                image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
                 action = actions[i]
                 self.current_line = actions[i]
                 if index % self.T == 0:
@@ -92,7 +92,7 @@ class OfflineDatasets(Dataset):
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)
-                image = cv2.resize(image, (self.img_size, self.img_size))
+                image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
                 action = actions[i]
                 velocity = action[:4]  # vx_body, vy_body, vz_body, v_yaw
                 velocity = self.normalize_v(velocity)

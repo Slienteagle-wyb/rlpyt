@@ -31,7 +31,7 @@ class OfflineUlReplayBuffer:
         self.rotation_dim = rotation_dim
         self.command_catgorical = command_catgorical
         # initialize the namedarray with the shape of [T, B, C, H, W] and [T, B, act_dim]
-        self.example = OfflineSamples(observation=np.zeros((img_size, img_size, 3), dtype=np.uint8),
+        self.example = OfflineSamples(observation=np.zeros((3, img_size, img_size), dtype=np.uint8),
                                       translation=np.zeros(translation_dim, dtype=np.float32),
                                       rotation=np.zeros(rotation_dim, dtype=np.float32),
                                       velocity=np.zeros(4, dtype=np.float32),
@@ -98,17 +98,19 @@ class OfflineUlReplayBuffer:
     def extract_observation(self, T_idxs, B_idxs, forward_step):
         # return observatons as [T, B, F, C, H, W]
         observation = np.empty(shape=(self.forward_step + 1, len(B_idxs), self.frame_stacks) +
-                                      self.samples.observation.shape[2:], dtype=self.samples.observation.dtype)
+                               self.samples.observation.shape[2:], dtype=self.samples.observation.dtype)
 
         for i, (t_idx, b_idx) in enumerate(zip(T_idxs, B_idxs)):
             if t_idx + forward_step > self.T:
                 for frame in range(self.frame_stacks):
-                    observation[0:self.T - t_idx, i, frame] = self.samples.observation[t_idx + frame:self.T + frame, b_idx]
-                    observation[self.T - t_idx:, i, frame] = self.samples.observation[
-                                                             frame:frame + self.forward_step + t_idx - self.T, b_idx]
+                    observation[0:self.T - t_idx, i, frame] = \
+                        self.samples.observation[t_idx + frame:self.T + frame, b_idx]
+                    observation[self.T - t_idx:, i, frame] = \
+                        self.samples.observation[frame:frame + self.forward_step + t_idx - self.T, b_idx]
             else:
                 for frame in range(self.frame_stacks):
-                    observation[:, i, frame] = self.samples.observation[t_idx + frame:t_idx + frame + self.forward_step + 1, b_idx]
+                    observation[:, i, frame] = \
+                        self.samples.observation[t_idx + frame:t_idx + frame + self.forward_step + 1, b_idx]
         return observation
 
 

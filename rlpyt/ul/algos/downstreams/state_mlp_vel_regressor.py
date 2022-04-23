@@ -6,7 +6,6 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
 from rlpyt.models.mlp import MlpModel
-from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
@@ -53,7 +52,6 @@ class StateVelRegressBc(BaseUlAlgorithm):
         self.device = torch.device('cpu') if cuda_idx is None else torch.device('cuda', index=cuda_idx)
         examples = self.load_replay(with_validation=self.with_validation)
         self.img_shape = examples.observation.shape
-
         self.itrs_per_epoch = self.train_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
         print(self.itrs_per_epoch, self.n_updates)
@@ -128,6 +126,9 @@ class StateVelRegressBc(BaseUlAlgorithm):
 
         b, f, c, h, w = obs.shape
         obs = obs.view(b*f, c, h, w)  # apply frame stack if f>1
+        if obs.dtype == torch.uint8:
+            obs = obs.type(torch.float)
+            obs = obs.mul_(1. / 255)
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
             conv_out = self.encoder.conv(obs)

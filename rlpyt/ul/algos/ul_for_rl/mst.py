@@ -65,7 +65,7 @@ class DroneMST(BaseUlAlgorithm):
 
         self.batch_size = batch_B * batch_T  # for logging only
         self._replay_T = warmup_T + batch_T  # self.replay_T == self._replay_T is the len of every sampled trajectory
-        self.img_preprocess = Trans.ToTensor()
+
 
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
@@ -178,7 +178,6 @@ class DroneMST(BaseUlAlgorithm):
 
     def mst_loss(self, samples):
         obs_one = samples.observations
-        obs_one = self.img_preprocess(obs_one)
         length, b, f, c, h, w = obs_one.shape
         obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
         obs_two = copy.deepcopy(obs_one)
