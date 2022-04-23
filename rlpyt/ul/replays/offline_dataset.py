@@ -48,6 +48,7 @@ class OfflineDatasets(Dataset):
             img_names = glob.glob(os.path.join(self.data_path, run, 'images/*png'))
             img_names.sort()
             index = 0
+            print(run)
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)  # note that the shape of image read by cv2 is (w, h, c)
@@ -80,7 +81,7 @@ class OfflineDatasets(Dataset):
 
     # for imitation learning
     def extract_img(self):
-        runs = glob.glob(str(self.data_path) + '/*')
+        runs = glob.glob(str(self.data_path) + '/run*')
         assert self.B == len(runs)
         runs.sort()
         for run_idx in tqdm(range(self.B)):
