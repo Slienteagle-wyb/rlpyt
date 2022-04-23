@@ -15,7 +15,7 @@ config = dict(
         clip_grad_norm=10.,
         validation_split=0.0,
         with_validation=True,
-        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220401/235029/mst_pretrain/mst_0327l_run1/params.pkl',
+        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220422/114024/mst_pretrain/mst_0422_run1/params.pkl',
     ),
     encoder=dict(
         use_fourth_layer=True,

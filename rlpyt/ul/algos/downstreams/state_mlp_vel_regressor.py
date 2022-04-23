@@ -63,11 +63,19 @@ class StateVelRegressBc(BaseUlAlgorithm):
             latent_size=self.latent_size,
             **self.encoder_kwargs,
         )
-        self.state_projector = ByolMlpModel(
-            input_dim=self.attitude_dim,
-            latent_size=self.state_latent_dim,
-            hidden_size=self.latent_size
+        # used as a byol style projector
+        # self.state_projector = ByolMlpModel(
+        #     input_dim=self.attitude_dim,
+        #     latent_size=self.state_latent_dim,
+        #     hidden_size=self.latent_size
+        # )
+        # used as a linear projector
+        self.state_projector = torch.nn.Linear(
+            in_features=self.attitude_dim,
+            out_features=self.state_latent_dim,
+            bias=False
         )
+
         self.policy = self.MlpCls(
             input_size=self.encoder.output_size + self.state_latent_dim,
             hidden_sizes=self.mlp_hidden_layers,

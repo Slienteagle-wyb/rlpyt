@@ -54,8 +54,9 @@ class BehaviorCloning(BaseRunner):
             cuda_idx=self.affinity.get("cuda_idx", None),
         )
         self.initialize_logging()
-        assert wandb.run is not None
-        self.algo.wandb_log_code()
+        if self.wandb_log:
+            assert wandb.run is not None
+            self.algo.wandb_log_code()
 
     def initialize_logging(self):
         self._opt_infos = {k: list() for k in self.algo.opt_info_fields}

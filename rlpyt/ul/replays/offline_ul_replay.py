@@ -31,7 +31,7 @@ class OfflineUlReplayBuffer:
         self.rotation_dim = rotation_dim
         self.command_catgorical = command_catgorical
         # initialize the namedarray with the shape of [T, B, C, H, W] and [T, B, act_dim]
-        self.example = OfflineSamples(observation=np.zeros((3, img_size, img_size), dtype=np.float32),
+        self.example = OfflineSamples(observation=np.zeros((img_size, img_size, 3), dtype=np.uint8),
                                       translation=np.zeros(translation_dim, dtype=np.float32),
                                       rotation=np.zeros(rotation_dim, dtype=np.float32),
                                       velocity=np.zeros(4, dtype=np.float32),
@@ -117,12 +117,13 @@ if __name__ == '__main__':
         replay_buffer=OfflineDatasets,
         img_size=84,
         frame_stacks=1,
-        data_path='/home/yibo/Downloads/airsim_datasets/soccer_50k/soccer_close_50k',
-        episode_length=50000,
+        data_path='/home/yibo/spaces/datasets/il_val_datasets',
+        episode_length=4096,
         num_runs=1,
         forward_step=0,
     )
     batchs = replay.sample_batch(16)
     x = batchs.observations
     print(x.shape)
+    print(x.dtype)
     print(x[0].device)

@@ -8,7 +8,6 @@ from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
-from rlpyt.utils.tensor import to_onehot
 from rlpyt.models.utils import update_state_dict
 from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel
@@ -66,6 +65,7 @@ class DroneMST(BaseUlAlgorithm):
 
         self.batch_size = batch_B * batch_T  # for logging only
         self._replay_T = warmup_T + batch_T  # self.replay_T == self._replay_T is the len of every sampled trajectory
+        self.img_preprocess = Trans.ToTensor()
 
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
@@ -178,6 +178,7 @@ class DroneMST(BaseUlAlgorithm):
 
     def mst_loss(self, samples):
         obs_one = samples.observations
+        obs_one = self.img_preprocess(obs_one)
         length, b, f, c, h, w = obs_one.shape
         obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
         obs_two = copy.deepcopy(obs_one)

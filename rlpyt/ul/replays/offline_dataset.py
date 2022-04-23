@@ -24,8 +24,8 @@ class OfflineDatasets(Dataset):
                  ):
         self.data_path = data_path
         self.img_size = img_size
-        self.preprocess = T.Compose([T.ToTensor(),
-                                     T.Resize((self.img_size, self.img_size))])
+        # self.preprocess = T.Compose([T.ToTensor(),
+        #                              T.Resize((self.img_size, self.img_size))])
         self.T = episode_length
         self.B = num_runs
         self.t = 0
@@ -41,6 +41,7 @@ class OfflineDatasets(Dataset):
     def extract_data(self):
         runs = glob.glob(str(self.data_path) + '/*')
         runs.sort()
+        assert self.B == len(runs)
         for run_idx in tqdm(range(self.B)):
             run = runs[run_idx]
             actions = np.loadtxt(os.path.join(run, 'labels.csv'), delimiter=' ')
@@ -49,14 +50,14 @@ class OfflineDatasets(Dataset):
             index = 0
             for i, img_name in enumerate(img_names):
                 index += 1
-                image = cv2.imread(img_name)
+                image = cv2.imread(img_name)  # note that the shape of image read by cv2 is (w, h, c)
+                image = cv2.resize(image, (self.img_size, self.img_size))
                 action = actions[i]
                 self.current_line = actions[i]
                 if index % self.T == 0:
                     self.next_line = actions[i]
                 else:
                     self.next_line = actions[i + 1]
-                image = self.preprocess(image)
 
                 trans, rotation = self.rotation_trans(self.current_line, self.next_line)
                 velocity = action[-4:]  # extract the velocity from labels
@@ -91,14 +92,15 @@ class OfflineDatasets(Dataset):
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)
+                image = cv2.resize(image, (self.img_size, self.img_size))
                 action = actions[i]
                 velocity = action[:4]  # vx_body, vy_body, vz_body, v_yaw
                 velocity = self.normalize_v(velocity)
                 attitude_quad = action[4:]  # qx, qy, qz, qw
                 attitude_matrix = R.from_quat(attitude_quad).as_matrix()
                 attitude_matrix = attitude_matrix.reshape(-1)
-                img_tensor = self.preprocess(image)
-                sample = self.offlinesamples(observation=img_tensor,
+                # img_tensor = self.preprocess(image)
+                sample = self.offlinesamples(observation=image,
                                              translation=np.zeros(3),
                                              rotation=np.zeros(6),
                                              velocity=np.array(velocity, dtype=np.float32),
