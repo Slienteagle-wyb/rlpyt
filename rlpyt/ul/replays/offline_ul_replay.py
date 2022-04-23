@@ -119,8 +119,8 @@ if __name__ == '__main__':
         replay_buffer=OfflineDatasets,
         img_size=84,
         frame_stacks=1,
-        data_path='/home/yibo/spaces/datasets/il_val_datasets',
-        episode_length=4096,
+        data_path='/home/comb/spaces/datasets/cross_domain',
+        episode_length=496,
         num_runs=1,
         forward_step=0,
     )

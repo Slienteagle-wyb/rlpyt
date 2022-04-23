@@ -35,11 +35,11 @@ class OfflineDatasets(Dataset):
         self.offlinesamples = OfflineSamples
         self.current_line = None
         self.next_line = None
-        self.extract_img()
+        self.extract_data()
 
     # extract and tensorfy the data
     def extract_data(self):
-        runs = glob.glob(str(self.data_path) + '/*')
+        runs = glob.glob(str(self.data_path) + '/run*')
         runs.sort()
         assert self.B == len(runs)
         for run_idx in tqdm(range(self.B)):

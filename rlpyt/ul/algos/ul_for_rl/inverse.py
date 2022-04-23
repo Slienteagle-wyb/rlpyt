@@ -1,8 +1,6 @@
-
 import torch
 import torch.nn.functional as F
 from collections import namedtuple
-
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.models.ul.inverse_models import InverseModel
 from rlpyt.utils.quick_args import save__init__args

@@ -30,6 +30,7 @@ def build_and_train(
     )
     runner = UnsupervisedLearning(
         algo=algo,
+        config_dict=config,
         affinity=affinity,
         **config["runner"]
     )

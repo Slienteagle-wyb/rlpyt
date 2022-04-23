@@ -1,6 +1,7 @@
 import torch
 from collections import namedtuple
 import copy
+import wandb
 from rlpyt.utils.tensor import valid_mean
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.utils.quick_args import save__init__args
@@ -398,3 +399,6 @@ class DroneMST(BaseUlAlgorithm):
         logger.log("Replay buffer loaded")
         example = self.replay_buffer.get_example()
         return example
+
+    def wandb_log_code(self):
+        wandb.save('./rlpyt/ul/algos/ul_for_rl/mst.py')

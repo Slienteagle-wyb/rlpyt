@@ -14,6 +14,7 @@ class UnsupervisedLearning(BaseRunner):
             self,
             algo,
             n_epochs,  # total update nums/iters counted by num of batch
+            config_dict,
             seed=None,
             affinity=None,
             log_interval_updates=1e3,  # save the check point every interval iters
@@ -53,6 +54,9 @@ class UnsupervisedLearning(BaseRunner):
         )
 
         self.initialize_logging()
+        if self.wandb_log:
+            assert wandb.run is not None
+            self.algo.wandb_log_code()
 
     def initialize_logging(self):
         self._opt_infos = {k: list() for k in self.algo.opt_info_fields}
@@ -63,7 +67,7 @@ class UnsupervisedLearning(BaseRunner):
 
         self.pbar = ProgBarCounter(self.log_interval_updates)
         if self.wandb_log:
-            wandb.init(project='ul_representation_byol', entity='slientea98')
+            wandb.init(project='ul_representation_byol', entity='slientea98', config=self.config_dict)
             wandb.run.name = self.wandb_log_name
 
     def shutdown(self):
