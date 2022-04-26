@@ -10,7 +10,7 @@ from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
 from rlpyt.models.utils import update_state_dict
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm, ResEncoderModel
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 from rlpyt.ul.algos.utils.data_augs import get_augmentation, random_shift
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
@@ -44,6 +44,7 @@ class DroneMST(BaseUlAlgorithm):
             target_update_interval=1,
             latent_size=256,
             hidden_sizes=512,
+            num_stacked_input=3,  # stacked input num equal to 1 when no stack
             random_shift_prob=1.,
             random_shift_pad=4,
             augmentations=('intensity',),  # combined with intensity jit accord to SGI
@@ -53,7 +54,7 @@ class DroneMST(BaseUlAlgorithm):
             validation_split=0.0,
             n_validation_batches=0,
             ReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModelNorm,
+            EncoderCls=ResEncoderModel,
             initial_state_dict=None,
             optim_kwargs=None,
             sched_kwargs=None,
@@ -86,8 +87,10 @@ class DroneMST(BaseUlAlgorithm):
             image_shape=image_shape,
             latent_size=self.latent_size,
             hidden_sizes=self.hidden_sizes,
+            num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs
         )
+
         self.target_encoder = copy.deepcopy(self.encoder)  # the target encoder is not tied with online encoder
 
         self.online_predictor = ByolMlpModel(
@@ -180,13 +183,16 @@ class DroneMST(BaseUlAlgorithm):
     def mst_loss(self, samples):
         obs_one = samples.observations
         length, b, f, c, h, w = obs_one.shape
+        assert length % self.num_stacked_input == 0
+        length = length // self.num_stacked_input
+        c = c * self.num_stacked_input
         obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
         obs_two = copy.deepcopy(obs_one)
-        prev_translation = samples.prev_translations
-        prev_rotation = samples.prev_rotations
-        current_translation = samples.translations
-        current_rotation = samples.rotations
-        direction_label = samples.directions
+        prev_translation = samples.prev_translations[::self.num_stacked_input]
+        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
+        current_translation = samples.translations[::self.num_stacked_input]
+        current_rotation = samples.rotations[::self.num_stacked_input]
+        direction_label = samples.directions[::self.num_stacked_input]
         prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
         current_action = torch.cat((current_translation, current_rotation), dim=-1)
 

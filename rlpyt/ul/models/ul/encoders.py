@@ -230,11 +230,22 @@ class ResEncoderModel(torch.nn.Module):
     def __init__(self,
                  image_shape,
                  latent_size,
-                 hidden_sizes
+                 hidden_sizes,
+                 num_stacked_input=3,
+                 res_depths=(32, 64, 64),
+                 downsampling_strides=(3, 2, 2),
+                 blocks_per_group=3,
+                 expand_ratio=2
                  ):
         super(ResEncoderModel, self).__init__()
+        self.num_stacked_input = num_stacked_input
         c, h, w = image_shape
-        self.conv = ResnetCNN(input_channels=c)
+        c = c * num_stacked_input
+        self.conv = ResnetCNN(input_channels=c,
+                              depths=res_depths,
+                              strides=downsampling_strides,
+                              blocks_per_group=blocks_per_group,
+                              expand_ratio=expand_ratio)
         self._output_size = self.conv.output_size(h, w)
         self._output_shape = self.conv.output_shape(h, w)
 

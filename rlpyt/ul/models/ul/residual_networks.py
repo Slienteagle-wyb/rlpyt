@@ -105,9 +105,10 @@ class ResnetCNN(torch.nn.Module):
                  depths=(32, 64, 64),  # (48, 96, 96) for large scale
                  strides=(3, 2, 2),  # down_sampling stride for the down_sampling layer at the input every group
                  blocks_per_group=3,  # equal to res18 block_per_group*len(depths)*2=18, 5 blocks for large
+                 expand_ratio=2,
                  norm_type="bn",
                  resblock=InvertedResidual,
-                 expand_ratio=2,):  # 4 expand_ratio for large
+                 ):  # 4 expand_ratio for large
         super(ResnetCNN, self).__init__()
         self.strides = strides
         self.depths = (input_channels, ) + depths  # output channels after every group
