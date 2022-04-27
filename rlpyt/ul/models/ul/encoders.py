@@ -5,7 +5,9 @@ from rlpyt.ul.models.dmlab_conv2d import DmlabConv2dModel, DmlabConv2dModelBn
 from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 from rlpyt.ul.models.ul.residual_networks import ResnetCNN
-
+from rlpyt.models.utils import conv2d_output_shape
+from torchvision.models import resnet18
+from torchvision.models.feature_extraction import get_graph_node_names, create_feature_extractor
 
 def weight_init(m):
     """Kaiming_normal is standard for relu networks, sometimes."""
@@ -278,9 +280,73 @@ class ResEncoderModel(torch.nn.Module):
         return self._output_shape
 
 
+class Res18Encoder(torch.nn.Module):
+    def __init__(self,
+                 latent_size,
+                 hidden_sizes,
+                 num_stacked_input=3,
+                 state_dict_path=None
+                 ):
+        super().__init__()
+        self.num_stacked_input = num_stacked_input
+        state = torch.load(state_dict_path)
+        state_dict = state['state_dict']
+        for k in list(state_dict.keys()):
+            if 'backbone' in k:
+                state_dict[k.replace('backbone.', '')] = state_dict[k]
+            del state_dict[k]
+        self.conv = resnet18()
+        self.conv.conv1 = torch.nn.Conv2d(3, 64, kernel_size=7, stride=1, bias=False)
+        self.conv.maxpool = torch.nn.Identity()
+        self.conv.fc = torch.nn.Identity()
+        # self.conv.avgpool = torch.nn.AdaptiveMaxPool2d((2, 2))
+        # self.conv.avgpool = torch.nn.Identity()
+        self.conv.load_state_dict(state_dict, strict=False)
+        print('had successfully loaded the pretrained model params!!!')
+        self.output_shape = self.conv(torch.randn(1, 3, 144, 144)).shape
+        self.head = ByolMlpModel(
+            input_dim=self.output_shape[-1] * self.num_stacked_input,
+            latent_size=latent_size,
+            hidden_size=hidden_sizes
+        )
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1. / 255)
+        else:
+            img = observation
+        conv = self.conv(img.reshape(T * B, *img_shape))
+        if self.num_stacked_input > 1:
+            conv_feature_list = []
+            conv = restore_leading_dims(conv, lead_dim, T, B)
+            assert T % self.num_stacked_input == 0
+            for i in range(self.num_stacked_input):
+                conv_feature_list.append(conv[i::self.num_stacked_input])
+            # shape of the conv is (T/self.num_stacked_input, B, conv_feature * self.num_stacked_input)
+            conv = torch.cat(conv_feature_list, dim=-1)
+
+        img_embedding = conv.reshape(int(T * B / self.num_stacked_input), -1)
+        c = self.head(img_embedding)
+        c = restore_leading_dims(c, lead_dim, int(T // self.num_stacked_input), B)
+        return c, conv
+
+
 if __name__ == '__main__':
-    model = ByolEncoderModel(image_shape=(3, 84, 84),
-                             latent_size=256,
-                             hidden_sizes=4096)
-    for params in model.named_parameters():
-        print(params[0])
+    img = torch.randn((9, 1, 3, 144, 144))
+    model = Res18Encoder(
+        latent_size=256,
+        hidden_sizes=512,
+        state_dict_path=f'/home/yibo/Documents/solo-learn/pretrain_models/byol/byol-400ep-imagenet100-ep=399.ckpt'
+    )
+    c, conv = model(img)
+    print(c.shape)
+    print(conv.shape)
+    # model = resnet18()
+    # nodes, _ = get_graph_node_names(model)
+    # features = {'layer4.0.relu_1': 'out'}
+    # feature_extractor = create_feature_extractor(model, return_nodes=features)
+    # out = feature_extractor(img)
+    # print(out['out'].shape)
+

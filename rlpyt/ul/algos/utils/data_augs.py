@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from kornia.augmentation import RandomAffine, RandomCrop, CenterCrop, RandomResizedCrop
 from kornia.filters import GaussianBlur2d
+from torchvision import transforms
 
 
 ##############################################################################
@@ -121,28 +122,32 @@ def random_shift(imgs, pad=1, prob=1.):
     return shifted
 
 
-def get_augmentation(augmentation, imagesize):
+def get_augmentation(augmentation, image_shape):
     if isinstance(augmentation, str):
         augmentation = augmentation.split("_")
-    transforms = []
+    transform_list = []
     for aug in augmentation:
         if aug == "affine":
             transformation = RandomAffine(5, (.14, .14), (.9, 1.1), (-5, 5))
         elif aug == "rrc":
-            transformation = RandomResizedCrop((imagesize, imagesize), (0.8, 1))
+            transformation = RandomResizedCrop((image_shape[1], image_shape[2]), (0.8, 1))
         elif aug == "blur":
-            transformation = GaussianBlur2d((5, 5), (1.5, 1.5))
+            transformation = GaussianBlur2d((5, 5), (0.1, 2.0))
+        elif aug == 'color_jit':
+            transformation = transforms.RandomApply(transforms.ColorJitter(brightness=0.4, contrast=0.4,
+                                                                           saturation=0.2, hue=0.1), p=0.8)
         elif aug == "shift" or aug == "crop":
-            transformation = torch.nn.Sequential(torch.nn.ReplicationPad2d(4), RandomCrop((84, 84)))
+            transformation = torch.nn.Sequential(torch.nn.ReplicationPad2d(6), RandomCrop((image_shape[1], image_shape[2])))
         elif aug == "intensity":
             transformation = Intensity(scale=0.05)
         elif aug == "none":
             continue
         else:
             raise NotImplementedError()
-        transforms.append(transformation)
+        transform_list.append(transformation)
+    transform_list.append(transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.228, 0.224, 0.225)))
 
-    return transforms
+    return transform_list
 
 
 class Intensity(torch.nn.Module):
