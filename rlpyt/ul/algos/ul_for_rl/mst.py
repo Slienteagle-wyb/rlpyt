@@ -1,3 +1,4 @@
+import cv2
 import torch
 from collections import namedtuple
 import copy
@@ -17,6 +18,7 @@ from rlpyt.ul.models.ul.inverse_models import InverseModelHead
 from rlpyt.ul.models.ul.forward_models import ForwardAggRnnModel, SkipConnectForwardAggModel
 import torchvision.transforms as Trans
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 
 IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
@@ -216,18 +218,27 @@ class DroneMST(BaseUlAlgorithm):
         obs_two = aug_trans(obs_two).reshape(length, b*f, c, h, w)
 
         assert length % self.num_stacked_input == 0
-        splited_obs_list = torch.split(obs_one, split_size_or_sections=self.num_stacked_input, dim=0)
-        stacked_obs_list = []
-        for splited_obs in splited_obs_list:
-            stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
-            stacked_obs_list.append(stacked_obs.squeeze())
+        splited_obs_one_list = torch.split(obs_one, split_size_or_sections=self.num_stacked_input, dim=0)
+        splited_obs_two_list = torch.split(obs_two, split_size_or_sections=self.num_stacked_input, dim=0)
+        stacked_obs_one_list = []
+        stacked_obs_two_list = []
+        for splited_obs_one in splited_obs_one_list:
+            stacked_obs_one = torch.cat(torch.split(splited_obs_one, split_size_or_sections=1, dim=0), dim=2)
+            stacked_obs_one_list.append(stacked_obs_one.squeeze())
+        for splited_obs_two in splited_obs_two_list:
+            stacked_obs_two = torch.cat(torch.split(splited_obs_two, split_size_or_sections=1, dim=0), dim=2)
+            stacked_obs_two_list.append(stacked_obs_two.squeeze())
         # shape of obs is (length//self.num_stacked_input, b*f, self.num_stacked_input*c, h, w)
-        obs_one = torch.stack(stacked_obs_list, dim=0)
+        obs_one = torch.stack(stacked_obs_one_list, dim=0)
+        obs_two = torch.stack(stacked_obs_two_list, dim=0)
+
+        # print(obs_one[0][0][0:3].permute(2, 0, 1).cpu().numpy().shape)
+        # cv2.imwrite('/home/comb/Downloads/fig_1.png', obs_one[0][0][0:3].permute(2, 1, 0).cpu().numpy())
+        # cv2.imwrite('/home/comb/Downloads/fig_2.png', obs_one[0][0][3:6].permute(2, 1, 0).cpu().numpy())
+        # cv2.imwrite('/home/comb/Downloads/fig_3.png', obs_one[0][0][6:9].permute(2, 1, 0).cpu().numpy())
 
         length, b, c, h, w = obs_one.shape
         assert c == 3 * self.num_stacked_input
-        obs_one = obs_one.reshape(length * b, c, h, w)
-        obs_two = obs_two.reshape(length * b, c, h, w)
 
         with torch.no_grad():
             obs_one_target_proj, _ = self.target_encoder(obs_one)

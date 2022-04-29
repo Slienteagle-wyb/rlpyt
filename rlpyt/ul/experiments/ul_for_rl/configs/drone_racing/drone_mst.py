@@ -9,7 +9,7 @@ config = dict(
         hidden_sizes=512,
         num_stacked_input=3,
         target_update_tau=0.01,
-        augmentations=('blur', 'color_jit', 'intensity'),
+        augmentations=('blur', 'intensity'),
         spr_loss_coefficient=2.0,
         contrast_loss_coefficient=1.0,
         inverse_dyna_loss_coefficient=1.0,
@@ -50,16 +50,16 @@ config = dict(
     runner=dict(
         n_epochs=int(3000),  # base_n_epoch=1000
         log_interval_updates=int(1e3),
-        wandb_log=False,
+        wandb_log=True,
         wandb_log_name=None,
         snapshot_gap_intervals=40,  # the save interval factor(40 * 1k)
     ),
     replay=dict(
-            img_size=144,
+            img_size=84,
             frame_stacks=1,  # the dim of F channel for the extracted batch
-            data_path=f'/home/yibo/spaces/datasets/cross_domain',
+            data_path=f'/home/comb/spaces/datasets/cross_domain',
             episode_length=496,  # the length of T idx for the dataset replay
-            num_runs=5,  # the dim of batch_idx for dataset replay (250) is full
+            num_runs=250,  # the dim of batch_idx for dataset replay (250) is full
             forward_step=95,  # the forward step for extracting batch, total extracted batch_T = 1 + forward_step
             translation_dim=3,
             rotation_dim=6,
