@@ -8,7 +8,6 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
-from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
 from rlpyt.models.utils import update_state_dict
 from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm, ResEncoderModel
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel
@@ -183,10 +182,10 @@ class DroneMST(BaseUlAlgorithm):
 
     def mst_loss(self, samples):
         obs_one = samples.observations
-        default_float_dtype = torch.get_default_dtype()
-        obs_one = obs_one.to(dtype=default_float_dtype).div(255)
         length, b, f, c, h, w = obs_one.shape
         obs_one = obs_one.view(length * b * f, c, h, w)
+        default_float_dtype = torch.get_default_dtype()
+        obs_one = obs_one.to(dtype=default_float_dtype).div(255)
         obs_two = copy.deepcopy(obs_one)
 
         if self.random_shift_prob > 0.:
@@ -208,19 +207,27 @@ class DroneMST(BaseUlAlgorithm):
         direction_label = samples.directions[::self.num_stacked_input]
         prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
         current_action = torch.cat((current_translation, current_rotation), dim=-1)
-
         obs_one, obs_two, prev_action, current_action, direction_label = buffer_to((obs_one, obs_two, prev_action,
                                                                                     current_action, direction_label),
                                                                                    device=self.device)
 
         aug_trans = Trans.Compose(get_augmentation(self.augmentations, image_shape=(c, h, w)))
-        obs_one = aug_trans(obs_one)
-        obs_two = aug_trans(obs_two)
+        obs_one = aug_trans(obs_one).reshape(length, b*f, c, h, w)
+        obs_two = aug_trans(obs_two).reshape(length, b*f, c, h, w)
+
         assert length % self.num_stacked_input == 0
-        length = length // self.num_stacked_input
-        c = c * self.num_stacked_input
-        obs_one = obs_one.reshape(length, b, c, h, w)
-        obs_two = obs_two.reshape(length, b, c, h, w)
+        splited_obs_list = torch.split(obs_one, split_size_or_sections=self.num_stacked_input, dim=0)
+        stacked_obs_list = []
+        for splited_obs in splited_obs_list:
+            stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
+            stacked_obs_list.append(stacked_obs.squeeze())
+        # shape of obs is (length//self.num_stacked_input, b*f, self.num_stacked_input*c, h, w)
+        obs_one = torch.stack(stacked_obs_list, dim=0)
+
+        length, b, c, h, w = obs_one.shape
+        assert c == 3 * self.num_stacked_input
+        obs_one = obs_one.reshape(length * b, c, h, w)
+        obs_two = obs_two.reshape(length * b, c, h, w)
 
         with torch.no_grad():
             obs_one_target_proj, _ = self.target_encoder(obs_one)
@@ -312,7 +319,7 @@ class DroneMST(BaseUlAlgorithm):
 
         global_latents = obs_one_online_proj.detach().view(-1, latent_dim)
         global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
-        global_latents_std = global_latents.std(dim=1).mean()
+        global_latents_std = global_latents.std(dim=0).mean()
         cos_sim = torch.matmul(global_latents, global_latents.transpose(1, 0))  # get a matrix [T*B, T*B]
         mask = 1 - torch.eye(T*B, device=self.device, dtype=torch.float)
         cos_sim = cos_sim*mask  # mask the similarity of every self

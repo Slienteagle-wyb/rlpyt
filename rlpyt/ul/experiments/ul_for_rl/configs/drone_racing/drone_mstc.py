@@ -23,7 +23,7 @@ config = dict(
     # ),
     # encoder config of resnet style encoder
     encoder=dict(
-        state_dict_path=f'/home/comb/Documents/solo-learn/pretrain_models/byol/byol-400ep-imagenet100-ep=399.ckpt'
+        state_dict_path=f'/home/yibo/Documents/solo-learn/pretrain_models/byol/byol-400ep-imagenet100-ep=399.ckpt'
     ),
     optim=dict(
         optim_id='adamw',
@@ -54,7 +54,7 @@ config = dict(
     replay=dict(
             img_size=144,
             frame_stacks=1,  # the dim of F channel for the extracted batch
-            data_path=f'/home/comb/spaces/datasets/cross_domain',
+            data_path=f'/home/yibo/spaces/datasets/cross_domain',
             episode_length=496,  # the length of T idx for the dataset replay
             num_runs=10,  # the dim of batch_idx for dataset replay (250 if full)
             forward_step=95,  # the forward step for extracting batch, total extracted batch_T = 1 + forward_step

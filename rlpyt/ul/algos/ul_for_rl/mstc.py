@@ -72,7 +72,6 @@ class DroneMSTC(BaseUlAlgorithm):
 
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
-
         examples = self.load_replay()
         self.itrs_per_epoch = self.replay_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
@@ -187,22 +186,6 @@ class DroneMSTC(BaseUlAlgorithm):
         length, b, f, c, h, w = obs_one.shape
         obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
         obs_two = copy.deepcopy(obs_one)
-        prev_translation = samples.prev_translations[::self.num_stacked_input]
-        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
-        current_translation = samples.translations[::self.num_stacked_input]
-        current_rotation = samples.rotations[::self.num_stacked_input]
-        direction_label = samples.directions[::self.num_stacked_input]
-        prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
-        current_action = torch.cat((current_translation, current_rotation), dim=-1)
-
-        lead_dim, batch_len, batch_size, shape = infer_leading_dims(obs_one, 3)
-        obs_one = obs_one.reshape(batch_len*batch_size, *shape)
-        obs_two = obs_two.reshape(batch_len*batch_size, *shape)
-        aug_trans = Trans.Compose(get_augmentation(self.augmentations, shape))
-        obs_one = aug_trans(obs_one)
-        obs_two = aug_trans(obs_two)
-        obs_one = restore_leading_dims(obs_one, lead_dim, batch_len, batch_size)
-        obs_two = restore_leading_dims(obs_two, lead_dim, batch_len, batch_size)
 
         if self.random_shift_prob > 0.:
             obs_one = random_shift(
@@ -215,10 +198,26 @@ class DroneMSTC(BaseUlAlgorithm):
                 pad=self.random_shift_pad,
                 prob=self.random_shift_prob,
             )
+        prev_translation = samples.prev_translations[::self.num_stacked_input]
+        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
+        current_translation = samples.translations[::self.num_stacked_input]
+        current_rotation = samples.rotations[::self.num_stacked_input]
+        direction_label = samples.directions[::self.num_stacked_input]
+        prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
+        current_action = torch.cat((current_translation, current_rotation), dim=-1)
 
         obs_one, obs_two, prev_action, current_action, direction_label = buffer_to((obs_one, obs_two, prev_action,
                                                                                     current_action, direction_label),
                                                                                    device=self.device)
+
+        lead_dim, batch_len, batch_size, shape = infer_leading_dims(obs_one, 3)
+        obs_one = obs_one.reshape(batch_len*batch_size, *shape)
+        obs_two = obs_two.reshape(batch_len*batch_size, *shape)
+        aug_trans = Trans.Compose(get_augmentation(self.augmentations, shape))
+        obs_one = aug_trans(obs_one)
+        obs_two = aug_trans(obs_two)
+        obs_one = restore_leading_dims(obs_one, lead_dim, batch_len, batch_size)
+        obs_two = restore_leading_dims(obs_two, lead_dim, batch_len, batch_size)
 
         with torch.no_grad():
             obs_one_target_proj, _ = self.target_encoder(obs_one)
@@ -311,7 +310,7 @@ class DroneMSTC(BaseUlAlgorithm):
         # calculate similarity between latents in a batch
         global_latents = obs_one_online_proj.detach().view(-1, latent_dim)
         global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
-        global_latents_std = global_latents.std(dim=1).mean()
+        global_latents_std = global_latents.std(dim=0).mean()
         cos_sim = torch.matmul(global_latents, global_latents.transpose(1, 0))  # get a matrix [T*B, T*B]
         mask = 1 - torch.eye(T*B, device=self.device, dtype=torch.float)
         cos_sim = cos_sim*mask  # mask the similarity of every self

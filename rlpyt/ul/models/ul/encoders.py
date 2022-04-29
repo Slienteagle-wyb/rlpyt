@@ -326,6 +326,7 @@ class Res18Encoder(torch.nn.Module):
                 conv_feature_list.append(conv[i::self.num_stacked_input])
             # shape of the conv is (T/self.num_stacked_input, B, conv_feature * self.num_stacked_input)
             conv = torch.cat(conv_feature_list, dim=-1)
+            assert conv.shape[0] == int(T / self.num_stacked_input)
 
         img_embedding = conv.reshape(int(T * B / self.num_stacked_input), -1)
         c = self.head(img_embedding)
