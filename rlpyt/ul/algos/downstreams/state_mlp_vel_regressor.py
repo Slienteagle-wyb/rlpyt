@@ -1,7 +1,8 @@
+import cv2
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -27,13 +28,14 @@ class StateVelRegressBc(BaseUlAlgorithm):
             with_validation=True,
             latent_size=256,
             hidden_sizes=512,
+            num_stacked_input=3,
             mlp_hidden_layers=None,
             action_dim=4,
             attitude_dim=9,
             state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModelNorm,
+            EncoderCls=ResEncoderModel,
             MlpCls=MlpModel,
             state_dict_filename=None,
             sched_kwargs=None,
@@ -59,6 +61,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             image_shape=self.img_shape,
             hidden_sizes=self.hidden_sizes,
             latent_size=self.latent_size,
+            num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs,
         )
         # used as a byol style projector
@@ -120,23 +123,35 @@ class StateVelRegressBc(BaseUlAlgorithm):
         return opt_info
 
     def pred_loss(self, samples):
-        obs = samples.observations[0]
-        vel_states = samples.velocities[0]
-        attitude_states = samples.attitudes[0]
+        obs = samples.observations
+        length, batch_size, f, c, h, w = obs.shape
+        obs = obs.view(length, batch_size * f, c, h, w)
+        assert length % self.num_stacked_input == 0
+        length = int(length // self.num_stacked_input)
+        # return a tuple of tensor shape (split_size, batch*f, c, h, w)
+        splited_obs_list = torch.split(obs, split_size_or_sections=self.num_stacked_input, dim=0)
+        stacked_obs_list = []
+        for splited_obs in splited_obs_list:
+            # return a tuple of tensor shape (1, batch*f, c, h, w)
+            stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
+            stacked_obs_list.append(stacked_obs.squeeze())
+        obs = torch.stack(stacked_obs_list, dim=0)
+        vel_states = samples.velocities[::self.num_stacked_input]
+        attitude_states = samples.attitudes[::self.num_stacked_input]
 
-        b, f, c, h, w = obs.shape
-        obs = obs.view(b*f, c, h, w)  # apply frame stack if f>1
         if obs.dtype == torch.uint8:
-            obs = obs.type(torch.float)
-            obs = obs.mul_(1. / 255)
+            default_float_type = torch.get_default_dtype()
+            obs = obs.to(dtype=default_float_type).div(255.0)
+
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
-            conv_out = self.encoder.conv(obs)
+            conv_out = self.encoder.conv(obs.reshape(length*batch_size*f, c, h, w))
             conv_out.detach_()
         state_embedding = self.state_projector(attitude_states)
-        policy_input = torch.cat((conv_out.detach().reshape(b*f, -1), state_embedding), dim=-1)
+        policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
+                                  state_embedding.reshape(length*batch_size, -1)), dim=-1)
         pred_vel = self.policy(policy_input)
-        pred_loss = self.pred_loss_fn(pred_vel, vel_states)
+        pred_loss = self.pred_loss_fn(pred_vel, vel_states.reshape(length*batch_size, -1))
         return pred_loss
 
     def validation(self, itr):

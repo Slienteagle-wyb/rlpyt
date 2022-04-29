@@ -4,10 +4,11 @@ configs = dict()
 config = dict(
     algo=dict(
         delta_T=0,  # forward predict step
-        batch_T=1,
+        batch_T=3,
         batch_B=512,
         latent_size=256,
         hidden_sizes=512,
+        num_stacked_input=3,
         mlp_hidden_layers=[128, 64, 16],
         action_dim=4,
         attitude_dim=9,
@@ -16,12 +17,19 @@ config = dict(
         validation_split=0.0,
         with_validation=True,
         # f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
-        state_dict_filename=None,
+        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220425/141429/mst_pretrain/mst_0425_run1/params.pkl',
     ),
+    # encoder=dict(
+    #     use_fourth_layer=True,
+    #     skip_connections=True,
+    #     kaiming_init=True,
+    # ),
+    # convnext style encoder params
     encoder=dict(
-        use_fourth_layer=True,
-        skip_connections=True,
-        kaiming_init=True,
+        res_depths=(32, 64, 64),
+        downsampling_strides=(3, 2, 2),
+        blocks_per_group=3,
+        expand_ratio=2
     ),
     optim=dict(
         optim_id='adamw',
@@ -40,9 +48,9 @@ config = dict(
             lr_k_decay=1.0,
         ),
     runner=dict(
-        n_epochs=int(1000),
+        n_epochs=int(3000),
         log_interval_updates=int(2e3),
-        wandb_log=True,
+        wandb_log=False,
         wandb_log_name=None,
     ),
     train_replay=dict(
@@ -51,7 +59,7 @@ config = dict(
         data_path='/home/yibo/spaces/datasets/il_datasets',
         episode_length=4096,
         num_runs=3,
-        forward_step=0,
+        forward_step=2,
         translation_dim=3,
         rotation_dim=6,
     ),
@@ -61,7 +69,7 @@ config = dict(
             data_path='/home/yibo/spaces/datasets/il_val_datasets',
             episode_length=4096,
             num_runs=1,
-            forward_step=0,
+            forward_step=2,
             translation_dim=3,
             rotation_dim=6,
         ),

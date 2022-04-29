@@ -71,7 +71,6 @@ class DroneMST(BaseUlAlgorithm):
 
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
-
         examples = self.load_replay()
         self.itrs_per_epoch = self.replay_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
