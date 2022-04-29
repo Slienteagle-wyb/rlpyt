@@ -23,7 +23,8 @@ import torch.nn.functional as F
 IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["mstLoss", "sprLoss", "contrastLoss", 'inverseDynaLoss',
                                  "cpcAccuracy1", "cpcAccuracy2", "cpcAccuracyTm1", "cpcAccuracyTm2",
-                                 'inverse_pred_accuracy', 'cos_similarity', "gradNorm", 'current_lr'])
+                                 'inverse_pred_accuracy', 'cos_similarity', 'global_latents_std',
+                                 "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["mstLoss", "accuracy", "convActivation"])
 
 
@@ -47,7 +48,7 @@ class DroneMST(BaseUlAlgorithm):
             num_stacked_input=3,  # stacked input num equal to 1 when no stack
             random_shift_prob=1.,
             random_shift_pad=4,
-            augmentations=('intensity',),  # combined with intensity jit accord to SGI
+            augmentations=('blur', 'color_jit', 'intensity'),  # combined with intensity jit accord to SGI
             spr_loss_coefficient=1.0,
             contrast_loss_coefficient=1.0,
             inverse_dyna_loss_coefficient=1.0,
@@ -148,7 +149,7 @@ class DroneMST(BaseUlAlgorithm):
 
         self.optimizer.zero_grad()
         # calculate the loss func
-        loss, spr_loss, contrast_loss, inverse_dyna_loss,  pred_accuracies, inverse_pred_accuracy, cos_similarity = self.mst_loss(samples)
+        loss, spr_loss, contrast_loss, inverse_dyna_loss,  pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std = self.mst_loss(samples)
         optimize_loss = spr_loss * self.spr_loss_coefficient + contrast_loss * self.contrast_loss_coefficient + inverse_dyna_loss * self.inverse_dyna_loss_coefficient
         optimize_loss.backward()
         if self.clip_grad_norm is None:
@@ -169,6 +170,7 @@ class DroneMST(BaseUlAlgorithm):
         opt_info.cpcAccuracyTm2.append(pred_accuracies[3].item())
         opt_info.inverse_pred_accuracy.append(inverse_pred_accuracy.item())
         opt_info.cos_similarity.append(cos_similarity.item())
+        opt_info.global_latents_std.append(global_latents_std.item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
 
@@ -181,28 +183,11 @@ class DroneMST(BaseUlAlgorithm):
 
     def mst_loss(self, samples):
         obs_one = samples.observations
+        default_float_dtype = torch.get_default_dtype()
+        obs_one = obs_one.to(dtype=default_float_dtype).div(255)
         length, b, f, c, h, w = obs_one.shape
-        assert length % self.num_stacked_input == 0
-        length = length // self.num_stacked_input
-        c = c * self.num_stacked_input
-        obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
+        obs_one = obs_one.view(length * b * f, c, h, w)
         obs_two = copy.deepcopy(obs_one)
-        prev_translation = samples.prev_translations[::self.num_stacked_input]
-        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
-        current_translation = samples.translations[::self.num_stacked_input]
-        current_rotation = samples.rotations[::self.num_stacked_input]
-        direction_label = samples.directions[::self.num_stacked_input]
-        prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
-        current_action = torch.cat((current_translation, current_rotation), dim=-1)
-
-        lead_dim, batch_len, batch_size, shape = infer_leading_dims(obs_one, 3)
-        obs_one = obs_one.reshape(batch_len*batch_size, *shape)
-        obs_two = obs_two.reshape(batch_len*batch_size, *shape)
-        aug_trans = Trans.Compose(get_augmentation(self.augmentations, 84))
-        obs_one = aug_trans(obs_one)
-        obs_two = aug_trans(obs_two)
-        obs_one = restore_leading_dims(obs_one, lead_dim, batch_len, batch_size)
-        obs_two = restore_leading_dims(obs_two, lead_dim, batch_len, batch_size)
 
         if self.random_shift_prob > 0.:
             obs_one = random_shift(
@@ -216,9 +201,26 @@ class DroneMST(BaseUlAlgorithm):
                 prob=self.random_shift_prob,
             )
 
+        prev_translation = samples.prev_translations[::self.num_stacked_input]
+        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
+        current_translation = samples.translations[::self.num_stacked_input]
+        current_rotation = samples.rotations[::self.num_stacked_input]
+        direction_label = samples.directions[::self.num_stacked_input]
+        prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
+        current_action = torch.cat((current_translation, current_rotation), dim=-1)
+
         obs_one, obs_two, prev_action, current_action, direction_label = buffer_to((obs_one, obs_two, prev_action,
                                                                                     current_action, direction_label),
                                                                                    device=self.device)
+
+        aug_trans = Trans.Compose(get_augmentation(self.augmentations, image_shape=(c, h, w)))
+        obs_one = aug_trans(obs_one)
+        obs_two = aug_trans(obs_two)
+        assert length % self.num_stacked_input == 0
+        length = length // self.num_stacked_input
+        c = c * self.num_stacked_input
+        obs_one = obs_one.reshape(length, b, c, h, w)
+        obs_two = obs_two.reshape(length, b, c, h, w)
 
         with torch.no_grad():
             obs_one_target_proj, _ = self.target_encoder(obs_one)
@@ -228,8 +230,8 @@ class DroneMST(BaseUlAlgorithm):
         obs_two_online_proj, _ = self.encoder(obs_two)
 
         spr_loss, pred_accuracies = self.spr_loss(obs_one_online_proj, obs_two_target_proj, prev_action, current_action)
-        contrast_loss, cos_similarity = self.contrast_loss(obs_one_online_proj, obs_two_target_proj,
-                                                           obs_two_online_proj, obs_one_target_proj)
+        contrast_loss, cos_similarity, global_latents_std = self.contrast_loss(obs_one_online_proj, obs_two_target_proj,
+                                                                               obs_two_online_proj, obs_one_target_proj)
         inverse_dyna_loss, inverse_pred_accuracy,  = self.inverse_dyna_loss(obs_two_online_proj,
                                                                             obs_one_target_proj,
                                                                             direction_label,
@@ -238,7 +240,7 @@ class DroneMST(BaseUlAlgorithm):
         loss = spr_loss + contrast_loss + inverse_dyna_loss
 
         return loss, spr_loss, contrast_loss, inverse_dyna_loss, \
-            pred_accuracies, inverse_pred_accuracy, cos_similarity
+            pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std
 
     def spr_loss(self, obs_one_online_proj, obs_two_target_proj, prev_action, current_action):
         agg_input = torch.cat((obs_one_online_proj[:self.warmup_T], prev_action[:self.warmup_T]), dim=-1)
@@ -310,12 +312,13 @@ class DroneMST(BaseUlAlgorithm):
 
         global_latents = obs_one_online_proj.detach().view(-1, latent_dim)
         global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
+        global_latents_std = global_latents.std(dim=1).mean()
         cos_sim = torch.matmul(global_latents, global_latents.transpose(1, 0))  # get a matrix [T*B, T*B]
         mask = 1 - torch.eye(T*B, device=self.device, dtype=torch.float)
         cos_sim = cos_sim*mask  # mask the similarity of every self
         offset = cos_sim.shape[-1] / (cos_sim.shape[-1] - 1)  # (T*B)/(T*B-1)
         cos_sim = cos_sim.mean() * offset
-        return contrast_loss.mean(), cos_sim
+        return contrast_loss.mean(), cos_sim, global_latents_std
 
     def inverse_dyna_loss(self, obs_two_online_proj, obs_one_target_proj, direction_label, action):
         rnn_input = torch.cat((obs_two_online_proj, action), dim=-1)

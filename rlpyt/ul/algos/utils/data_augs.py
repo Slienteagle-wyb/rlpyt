@@ -134,8 +134,8 @@ def get_augmentation(augmentation, image_shape):
         elif aug == "blur":
             transformation = GaussianBlur2d((5, 5), (0.1, 2.0))
         elif aug == 'color_jit':
-            transformation = transforms.RandomApply(transforms.ColorJitter(brightness=0.4, contrast=0.4,
-                                                                           saturation=0.2, hue=0.1), p=0.8)
+            transformation = transforms.RandomApply([transforms.ColorJitter(brightness=0.4, contrast=0.4,
+                                                                            saturation=0.2, hue=0.1)], p=0.8)
         elif aug == "shift" or aug == "crop":
             transformation = torch.nn.Sequential(torch.nn.ReplicationPad2d(6), RandomCrop((image_shape[1], image_shape[2])))
         elif aug == "intensity":
@@ -145,7 +145,6 @@ def get_augmentation(augmentation, image_shape):
         else:
             raise NotImplementedError()
         transform_list.append(transformation)
-    transform_list.append(transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.228, 0.224, 0.225)))
 
     return transform_list
 

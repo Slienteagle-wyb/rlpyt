@@ -7,7 +7,7 @@ from rlpyt.ul.models.ul.atc_models import ByolMlpModel
 from rlpyt.ul.models.ul.residual_networks import ResnetCNN
 from rlpyt.models.utils import conv2d_output_shape
 from torchvision.models import resnet18
-from torchvision.models.feature_extraction import get_graph_node_names, create_feature_extractor
+
 
 def weight_init(m):
     """Kaiming_normal is standard for relu networks, sometimes."""
