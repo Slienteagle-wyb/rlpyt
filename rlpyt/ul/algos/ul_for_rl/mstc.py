@@ -130,7 +130,6 @@ class DroneMSTC(BaseUlAlgorithm):
         self.forward_pred_rnn.to(self.device)
         self.inverse_pred_head.to(self.device)
         self.transforms.to(self.device)
-
         self.optim_initialize(epochs)
 
         # load the pretrained models
@@ -181,8 +180,9 @@ class DroneMSTC(BaseUlAlgorithm):
 
     def mst_loss(self, samples):
         obs_one = samples.observations
-        default_float_dtype = torch.get_default_dtype()
-        obs_one = obs_one.to(dtype=default_float_dtype).div(255)
+        if obs_one.dtype == torch.uint8:
+            default_float_dtype = torch.get_default_dtype()
+            obs_one = obs_one.to(dtype=default_float_dtype).div(255.0)
         length, b, f, c, h, w = obs_one.shape
         obs_one = obs_one.view(length, b * f, c, h, w)  # Treat all T,B as separate.(reshape the sample)
         obs_two = copy.deepcopy(obs_one)
@@ -193,11 +193,13 @@ class DroneMSTC(BaseUlAlgorithm):
                 pad=self.random_shift_pad,
                 prob=self.random_shift_prob,
             )
+
             obs_two = random_shift(
                 imgs=obs_two,
                 pad=self.random_shift_pad,
                 prob=self.random_shift_prob,
             )
+
         prev_translation = samples.prev_translations[::self.num_stacked_input]
         prev_rotation = samples.prev_rotations[::self.num_stacked_input]
         current_translation = samples.translations[::self.num_stacked_input]
@@ -214,10 +216,8 @@ class DroneMSTC(BaseUlAlgorithm):
         obs_one = obs_one.reshape(batch_len*batch_size, *shape)
         obs_two = obs_two.reshape(batch_len*batch_size, *shape)
         aug_trans = Trans.Compose(get_augmentation(self.augmentations, shape))
-        obs_one = aug_trans(obs_one)
-        obs_two = aug_trans(obs_two)
-        obs_one = restore_leading_dims(obs_one, lead_dim, batch_len, batch_size)
-        obs_two = restore_leading_dims(obs_two, lead_dim, batch_len, batch_size)
+        obs_one = aug_trans(obs_one).reshape(batch_len, batch_size, *shape)
+        obs_two = aug_trans(obs_two).reshape(batch_len, batch_size, *shape)
 
         with torch.no_grad():
             obs_one_target_proj, _ = self.target_encoder(obs_one)

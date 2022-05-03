@@ -3,7 +3,7 @@ configs = dict()
 
 config = dict(
     algo=dict(
-        delta_T=0,  # forward predict step
+        delta_T=0,  # forward predict step(of no usage)
         batch_T=3,
         batch_B=512,
         latent_size=256,
@@ -17,7 +17,7 @@ config = dict(
         validation_split=0.0,
         with_validation=True,
         # f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
-        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220425/141429/mst_pretrain/mst_0425_run1/params.pkl',
+        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220429/151954/mst_pretrain/mst_0429_run1/params.pkl',
     ),
     # encoder=dict(
     #     use_fourth_layer=True,
@@ -62,6 +62,7 @@ config = dict(
         forward_step=2,
         translation_dim=3,
         rotation_dim=6,
+        normalized_img=True,
     ),
     val_replay=dict(
             img_size=84,
@@ -72,6 +73,7 @@ config = dict(
             forward_step=2,
             translation_dim=3,
             rotation_dim=6,
+            normalized_img=True,
         ),
     name="state_mlp_vel_regressor",  # probably change this with the filepath
 )

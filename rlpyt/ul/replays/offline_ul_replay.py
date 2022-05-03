@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from rlpyt.ul.replays.offline_dataset import OfflineSamples, OfflineDatasets
 from rlpyt.utils.buffer import torchify_buffer, buffer_func
 from rlpyt.utils.misc import extract_sequences
@@ -16,6 +17,7 @@ class OfflineUlReplayBuffer:
                  data_path=None,
                  translation_dim=3,
                  rotation_dim=6,
+                 normalized_img=False,
                  command_catgorical=8,
                  episode_length=2000,
                  num_runs=1,
@@ -29,9 +31,11 @@ class OfflineUlReplayBuffer:
         self.img_size = img_size
         self.translation_dim = translation_dim
         self.rotation_dim = rotation_dim
+        self.normalized_img = normalized_img
         self.command_catgorical = command_catgorical
         # initialize the namedarray with the shape of [T, B, C, H, W] and [T, B, act_dim]
-        self.example = OfflineSamples(observation=np.zeros((3, img_size, img_size), dtype=np.uint8),
+        image_dtype = np.float32 if normalized_img else np.uint8
+        self.example = OfflineSamples(observation=np.zeros((3, img_size, img_size), dtype=image_dtype),
                                       translation=np.zeros(translation_dim, dtype=np.float32),
                                       rotation=np.zeros(rotation_dim, dtype=np.float32),
                                       velocity=np.zeros(4, dtype=np.float32),
@@ -45,6 +49,7 @@ class OfflineUlReplayBuffer:
                                            num_runs=self.num_runs,
                                            buffer_example=self.example,
                                            img_size=self.img_size,
+                                           normalized_img=self.normalized_img
                                            )
         self._samples = self.loaded_buffer.samples  # the loaded sample datas
         self.T = self.loaded_buffer.T

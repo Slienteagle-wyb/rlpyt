@@ -124,24 +124,27 @@ class StateVelRegressBc(BaseUlAlgorithm):
 
     def pred_loss(self, samples):
         obs = samples.observations
+        if obs.dtype == torch.uint8:
+            default_float_type = torch.get_default_dtype()
+            obs = obs.to(dtype=default_float_type).div(255.0)
+
         length, batch_size, f, c, h, w = obs.shape
         obs = obs.view(length, batch_size * f, c, h, w)
         assert length % self.num_stacked_input == 0
         length = int(length // self.num_stacked_input)
+        c = c * self.num_stacked_input
         # return a tuple of tensor shape (split_size, batch*f, c, h, w)
-        splited_obs_list = torch.split(obs, split_size_or_sections=self.num_stacked_input, dim=0)
-        stacked_obs_list = []
-        for splited_obs in splited_obs_list:
-            # return a tuple of tensor shape (1, batch*f, c, h, w)
-            stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
-            stacked_obs_list.append(stacked_obs.squeeze())
-        obs = torch.stack(stacked_obs_list, dim=0)
+        if self.num_stacked_input > 1:
+            splited_obs_list = torch.split(obs, split_size_or_sections=self.num_stacked_input, dim=0)
+            stacked_obs_list = []
+            for splited_obs in splited_obs_list:
+                # return a tuple of tensor shape (1, batch*f, c, h, w)
+                stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
+                stacked_obs_list.append(stacked_obs.squeeze())
+            obs = torch.stack(stacked_obs_list, dim=0)
+
         vel_states = samples.velocities[::self.num_stacked_input]
         attitude_states = samples.attitudes[::self.num_stacked_input]
-
-        if obs.dtype == torch.uint8:
-            default_float_type = torch.get_default_dtype()
-            obs = obs.to(dtype=default_float_type).div(255.0)
 
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():

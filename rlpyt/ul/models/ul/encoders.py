@@ -284,7 +284,7 @@ class Res18Encoder(torch.nn.Module):
     def __init__(self,
                  latent_size,
                  hidden_sizes,
-                 num_stacked_input=3,
+                 num_stacked_input=1,
                  state_dict_path=None
                  ):
         super().__init__()
@@ -318,6 +318,7 @@ class Res18Encoder(torch.nn.Module):
         else:
             img = observation
         conv = self.conv(img.reshape(T * B, *img_shape))
+
         if self.num_stacked_input > 1:
             conv_feature_list = []
             conv = restore_leading_dims(conv, lead_dim, T, B)

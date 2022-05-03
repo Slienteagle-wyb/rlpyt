@@ -21,6 +21,7 @@ class OfflineDatasets(Dataset):
                  buffer_example,
                  img_size,
                  vel_command_dim=4,
+                 normalized_img=False
                  ):
         self.data_path = data_path
         self.img_size = img_size
@@ -35,6 +36,7 @@ class OfflineDatasets(Dataset):
         self.offlinesamples = OfflineSamples
         self.current_line = None
         self.next_line = None
+        self.normalized_img = normalized_img
         self.extract_data()
 
     # extract and tensorfy the data
@@ -52,7 +54,11 @@ class OfflineDatasets(Dataset):
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)  # note that the shape of image read by cv2 is (w, h, c)
-                image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
+                if self.normalized_img:
+                    image = cv2.resize(image, (self.img_size, self.img_size))
+                    image = T.ToTensor()(image)
+                else:
+                    image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
                 action = actions[i]
                 self.current_line = actions[i]
                 if index % self.T == 0:
@@ -93,7 +99,11 @@ class OfflineDatasets(Dataset):
             for i, img_name in enumerate(img_names):
                 index += 1
                 image = cv2.imread(img_name)
-                image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
+                if self.normalized_img:
+                    image = cv2.resize(image, (self.img_size, self.img_size))
+                    image = T.ToTensor()(image)
+                else:
+                    image = cv2.resize(image, (self.img_size, self.img_size)).transpose((2, 0, 1))
                 action = actions[i]
                 velocity = action[:4]  # vx_body, vy_body, vz_body, v_yaw
                 velocity = self.normalize_v(velocity)
