@@ -16,9 +16,9 @@ default_config_key = "lstm_vel_regressor"
 variant_levles = list()
 
 
-keys = [('optim', 'lr'), ('runner', 'wandb_log_name')]
-values = [[5e-4, 'mst_0406_partial_lr_5e-4_lstm_len64_nowarmup'], [2.5e-4, 'mst_0406_partial_lr_2.5e-4_lstm_len64_nowarmup']]
-dir_name = ['learning_rate_0.0005', 'learning_rate_0.00025']
+keys = [('algo', 'batch_T'), ('algo', 'batch_B'), ('runner', 'wandb_log_name')]
+values = [[32, 16, 'mst_0504_mix_linear_latent256_lstm_onelayer_len32'], [16, 32, 'mst_0504_mix_linear_latent256_lstm_onelayer_len16']]
+dir_name = ['mst_lstm_len32', 'mst_lstm_len16']
 variant_levles.append(VariantLevel(keys, values, dir_name))
 
 variants, log_dirs = make_variants(*variant_levles)

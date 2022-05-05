@@ -1,7 +1,7 @@
 import torch
 import wandb
 from collections import namedtuple
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel, DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ByolEncoderModel, DmlabEncoderModelNorm, ResEncoderModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -21,21 +21,22 @@ class LstmVelRegressBc(BaseUlAlgorithm):
     def __init__(
             self,
             delta_T=0,
-            batch_T=64,  # as the horizon of policy
+            batch_T=32,  # as the horizon of policy
             warmup_T=0,
-            batch_B=16,
+            batch_B=32,
             clip_grad_norm=10.,
             validation_split=0.0,  # used for calculating num of epoch
             with_validation=True,
             latent_size=256,
             hidden_sizes=512,
+            num_stacked_input=3,
             lstm_layers=2,
             action_dim=4,
             attitude_dim=9,
             state_latent_dim=256,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModelNorm,
+            EncoderCls=ResEncoderModel,
             PolicyCls=LstmPolicyModel,
             state_dict_filename=None,
             sched_kwargs=None,
@@ -62,6 +63,7 @@ class LstmVelRegressBc(BaseUlAlgorithm):
             image_shape=self.img_shape,
             hidden_sizes=self.hidden_sizes,
             latent_size=self.latent_size,
+            num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs,
         )
         self.state_projector = torch.nn.Linear(
@@ -120,6 +122,9 @@ class LstmVelRegressBc(BaseUlAlgorithm):
 
     def pred_loss(self, samples):
         obs = samples.observations
+        if obs.dtype == torch.uint8:
+            default_float_type = torch.get_default_dtype()
+            obs = obs.to(dtype=default_float_type).div(255.0)
         vel_states = samples.velocities
         attitude_states = samples.attitudes
 

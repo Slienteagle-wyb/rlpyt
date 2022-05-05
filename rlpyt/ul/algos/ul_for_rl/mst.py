@@ -101,14 +101,16 @@ class DroneMST(BaseUlAlgorithm):
         self.forward_agg_rnn = SkipConnectForwardAggModel(
             input_size=int(self.latent_size + forward_input_size),
             hidden_sizes=self.hidden_sizes,
-            latent_size=self.latent_size
+            latent_size=self.latent_size,
+            num_layers=1,
+            skip_connect=False,
         )
 
-        self.forward_pred_rnn = SkipConnectForwardAggModel(
-            input_size=int(forward_input_size),
-            hidden_sizes=self.hidden_sizes,
-            latent_size=self.latent_size
-        )
+        # self.forward_pred_rnn = SkipConnectForwardAggModel(
+        #     input_size=int(forward_input_size),
+        #     hidden_sizes=self.hidden_sizes,
+        #     latent_size=self.latent_size
+        # )
 
         self.inverse_pred_head = InverseModelHead(
             input_dim=2 * self.latent_size,
@@ -128,7 +130,7 @@ class DroneMST(BaseUlAlgorithm):
         self.target_encoder.to(self.device)
         self.online_predictor.to(self.device)
         self.forward_agg_rnn.to(self.device)
-        self.forward_pred_rnn.to(self.device)
+        # self.forward_pred_rnn.to(self.device)
         self.inverse_pred_head.to(self.device)
         self.transforms.to(self.device)
 
@@ -261,11 +263,17 @@ class DroneMST(BaseUlAlgorithm):
             pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std
 
     def spr_loss(self, obs_one_online_proj, obs_two_target_proj, prev_action, current_action):
-        agg_input = torch.cat((obs_one_online_proj[:self.warmup_T], prev_action[:self.warmup_T]), dim=-1)
-        _, hidden_states = self.forward_agg_rnn(agg_input)
+        # agg_input = torch.cat((obs_one_online_proj[:self.warmup_T], prev_action[:self.warmup_T]), dim=-1)
+        # _, hidden_states = self.forward_agg_rnn(agg_input)
+        # current_action = current_action[self.warmup_T:]
+        # pred_next_states, _ = self.forward_pred_rnn(current_action, init_hiddens=hidden_states[-1])
 
-        current_action = current_action[self.warmup_T:]
-        pred_next_states, _ = self.forward_pred_rnn(current_action, init_hiddens=hidden_states[-1])  # pred_next_states [16, 16, 256]
+        # test the forward pred without action
+        agg_input = torch.cat((obs_one_online_proj, prev_action), dim=-1)
+        pred_next_states, _ = self.forward_agg_rnn(agg_input)
+        pred_next_states = pred_next_states[self.warmup_T:]
+
+        # pred_next_states [16, 16, 256]
         z_positive = obs_two_target_proj.detach()[self.warmup_T:]
 
         T, B, Z = z_positive.shape
@@ -372,7 +380,7 @@ class DroneMST(BaseUlAlgorithm):
             encoder=self.encoder.state_dict(),
             target_encoder=self.target_encoder.state_dict(),
             forward_agg_rnn=self.forward_agg_rnn.state_dict(),
-            forward_pred_rnn=self.forward_pred_rnn.state_dict(),
+            # forward_pred_rnn=self.forward_pred_rnn.state_dict(),
             inverse_pred_head=self.inverse_pred_head.state_dict(),
             optimizer=self.optimizer.state_dict(),
         )
@@ -382,14 +390,14 @@ class DroneMST(BaseUlAlgorithm):
         self.target_encoder.load_state_dict(state_dict["target_encoder"])
         self.online_predictor.load_state_dict(state_dict["online_predictor"])
         self.forward_agg_rnn.load_state_dict(state_dict['forward_agg_rnn'])
-        self.forward_pred_rnn.load_state_dict(state_dict['forward_pred_rnn'])
+        # self.forward_pred_rnn.load_state_dict(state_dict['forward_pred_rnn'])
         self.inverse_pred_head.load_state_dict(state_dict['inverse_pred_head'])
         self.optimizer.load_state_dict(state_dict["optimizer"])
 
     def parameters(self):
         yield from self.encoder.parameters()
         yield from self.forward_agg_rnn.parameters()
-        yield from self.forward_pred_rnn.parameters()
+        # yield from self.forward_pred_rnn.parameters()
         yield from self.online_predictor.parameters()
         yield from self.inverse_pred_head.parameters()
         yield from self.transforms.parameters()
@@ -399,7 +407,7 @@ class DroneMST(BaseUlAlgorithm):
         yield from self.encoder.named_parameters()
         yield from self.online_predictor.named_parameters()
         yield from self.forward_agg_rnn.named_parameters()
-        yield from self.forward_pred_rnn.named_parameters()
+        # yield from self.forward_pred_rnn.named_parameters()
         yield from self.inverse_pred_head.named_parameters()
         yield from self.transforms.named_parameters()
 
@@ -407,7 +415,7 @@ class DroneMST(BaseUlAlgorithm):
         self.encoder.eval()  # in case of batch norm
         self.online_predictor.eval()
         self.forward_agg_rnn.eval()
-        self.forward_pred_rnn.eval()
+        # self.forward_pred_rnn.eval()
         self.inverse_pred_head.eval()
         self.transforms.eval()
 
@@ -415,7 +423,7 @@ class DroneMST(BaseUlAlgorithm):
         self.encoder.train()
         self.online_predictor.train()
         self.forward_agg_rnn.train()
-        self.forward_pred_rnn.train()
+        # self.forward_pred_rnn.train()
         self.inverse_pred_head.train()
         self.transforms.train()
 

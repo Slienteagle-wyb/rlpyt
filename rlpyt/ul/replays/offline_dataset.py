@@ -107,6 +107,7 @@ class OfflineDatasets(Dataset):
                 action = actions[i]
                 velocity = action[:4]  # vx_body, vy_body, vz_body, v_yaw
                 velocity = self.normalize_v(velocity)
+                direction_label = self.extract_direction(velocity)
                 attitude_quad = action[4:]  # qx, qy, qz, qw
                 attitude_matrix = R.from_quat(attitude_quad).as_matrix()
                 attitude_matrix = attitude_matrix.reshape(-1)
@@ -115,7 +116,7 @@ class OfflineDatasets(Dataset):
                                              translation=np.zeros(3),
                                              rotation=np.zeros(6),
                                              velocity=np.array(velocity, dtype=np.float32),
-                                             direction=np.zeros(1),
+                                             direction=np.array(direction_label, dtype=np.float32),
                                              attitude=np.array(attitude_matrix, dtype=np.float32)
                                              )
                 self.samples[i][run_idx] = sample

@@ -6,7 +6,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel
 
 
 class OfflineUMAP:
@@ -80,12 +80,18 @@ class OfflineUMAP:
 
 def main():
     device = 'cuda:0'
-    model = DmlabEncoderModelNorm(
+    # model = DmlabEncoderModelNorm(
+    #     image_shape=(3, 84, 84),
+    #     latent_size=256,
+    #     hidden_sizes=512
+    # )
+    model = ResEncoderModel(
         image_shape=(3, 84, 84),
         latent_size=256,
-        hidden_sizes=512
+        hidden_sizes=512,
+        num_stacked_input=1
     )
-    state_dict_path = f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
+    state_dict_path = f'/home/yibo/Documents/rlpyt/data/local/20220501/210122/mst_pretrain/mst_0501_run1/params.pkl'
     print('models loading state dict ....')
     loaded_state_dict = torch.load(state_dict_path,
                                    map_location=torch.device('cpu'))
@@ -100,13 +106,13 @@ def main():
         replay_buffer=OfflineDatasets,
         img_size=84,
         frame_stacks=1,
-        data_path=f'/home/yibo/spaces/datasets/cross_domain',
-        episode_length=496,
-        num_runs=64,
+        data_path=f'/home/yibo/spaces/datasets/drone_repr_body',
+        episode_length=1792,
+        num_runs=60,
         forward_step=0,
     )
     batch = 64
-    plot_path = 'cross_domain_mix_mst_umap_64.pdf'
+    plot_path = 'in_domain_mix_mst_res_umap.pdf'
 
     umap = OfflineUMAP()
     umap.plot(device, model, dataloader, batch, plot_path)
