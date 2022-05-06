@@ -17,20 +17,20 @@ config = dict(
         validation_split=0.0,
         with_validation=True,
         # f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
-        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220501/210122/mst_pretrain/mst_0501_run1/params.pkl',
+        state_dict_filename=f'/home/yibo/spaces/snap_shots/rlpyt_drone_representation/20220315/144748/cpc_pretrain/itr_199999.pkl',
     ),
-    # encoder=dict(
-    #     use_fourth_layer=True,
-    #     skip_connections=True,
-    #     kaiming_init=True,
-    # ),
-    # convnext style encoder params
     encoder=dict(
-        res_depths=(32, 64, 64),
-        downsampling_strides=(3, 2, 2),
-        blocks_per_group=3,
-        expand_ratio=2
+        use_fourth_layer=True,
+        skip_connections=True,
+        kaiming_init=True,
     ),
+    # # convnext style encoder params
+    # encoder=dict(
+    #     res_depths=(32, 64, 64),
+    #     downsampling_strides=(3, 2, 2),
+    #     blocks_per_group=3,
+    #     expand_ratio=2
+    # ),
     optim=dict(
         optim_id='adamw',
         lr=1e-3,

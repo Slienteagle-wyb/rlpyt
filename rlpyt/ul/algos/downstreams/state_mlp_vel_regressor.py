@@ -2,7 +2,7 @@ import cv2
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel, DmlabEncoderModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -35,7 +35,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=ResEncoderModel,
+            EncoderCls=DmlabEncoderModel,
             MlpCls=MlpModel,
             state_dict_filename=None,
             sched_kwargs=None,
@@ -57,12 +57,16 @@ class StateVelRegressBc(BaseUlAlgorithm):
         self.itrs_per_epoch = self.train_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
         print(self.itrs_per_epoch, self.n_updates)
+        # self.encoder = self.EncoderCls(
+        #     image_shape=self.img_shape,
+        #     hidden_sizes=self.hidden_sizes,
+        #     latent_size=self.latent_size,
+        #     num_stacked_input=self.num_stacked_input,
+        #     **self.encoder_kwargs,
+        # )
         self.encoder = self.EncoderCls(
             image_shape=self.img_shape,
-            hidden_sizes=self.hidden_sizes,
-            latent_size=self.latent_size,
-            num_stacked_input=self.num_stacked_input,
-            **self.encoder_kwargs,
+            latent_size=self.latent_size
         )
         # used as a byol style projector
         # self.state_projector = ByolMlpModel(

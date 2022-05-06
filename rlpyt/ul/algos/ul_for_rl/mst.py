@@ -47,7 +47,7 @@ class DroneMST(BaseUlAlgorithm):
             num_stacked_input=3,  # stacked input num equal to 1 when no stack
             random_shift_prob=1.,
             random_shift_pad=4,
-            augmentations=('blur', 'color_jit', 'intensity'),  # combined with intensity jit accord to SGI
+            augmentations=('blur', 'intensity'),  # combined with intensity jit accord to SGI
             spr_loss_coefficient=1.0,
             contrast_loss_coefficient=1.0,
             inverse_dyna_loss_coefficient=1.0,
