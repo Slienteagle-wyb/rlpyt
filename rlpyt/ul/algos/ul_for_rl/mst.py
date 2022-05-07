@@ -23,7 +23,7 @@ IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["mstLoss", "sprLoss", "contrastLoss", 'inverseDynaLoss',
                                  "cpcAccuracy1", "cpcAccuracy2", "cpcAccuracyTm1", "cpcAccuracyTm2",
                                  'inverse_pred_accuracy', 'cos_similarity', 'global_latents_std',
-                                 "gradNorm", 'current_lr'])
+                                 'contrast_accuracy', "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["mstLoss", "accuracy", "convActivation"])
 
 
@@ -98,12 +98,17 @@ class DroneMST(BaseUlAlgorithm):
             hidden_size=self.hidden_sizes
         )
 
-        self.forward_agg_rnn = SkipConnectForwardAggModel(
+        # self.forward_agg_rnn = SkipConnectForwardAggModel(
+        #     input_size=int(self.latent_size + forward_input_size),
+        #     hidden_sizes=self.hidden_sizes,
+        #     latent_size=self.latent_size,
+        #     num_layers=1,
+        #     skip_connect=False,
+        # )
+        self.forward_agg_rnn = ForwardAggRnnModel(
             input_size=int(self.latent_size + forward_input_size),
             hidden_sizes=self.hidden_sizes,
-            latent_size=self.latent_size,
-            num_layers=1,
-            skip_connect=False,
+            latent_size=self.latent_size
         )
 
         # self.forward_pred_rnn = SkipConnectForwardAggModel(
@@ -150,7 +155,7 @@ class DroneMST(BaseUlAlgorithm):
 
         self.optimizer.zero_grad()
         # calculate the loss func
-        loss, spr_loss, contrast_loss, inverse_dyna_loss,  pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std = self.mst_loss(samples)
+        loss, spr_loss, contrast_loss, inverse_dyna_loss,  pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std, contrast_accuracy = self.mst_loss(samples)
         optimize_loss = spr_loss * self.spr_loss_coefficient + contrast_loss * self.contrast_loss_coefficient + inverse_dyna_loss * self.inverse_dyna_loss_coefficient
         optimize_loss.backward()
         if self.clip_grad_norm is None:
@@ -172,6 +177,7 @@ class DroneMST(BaseUlAlgorithm):
         opt_info.inverse_pred_accuracy.append(inverse_pred_accuracy.item())
         opt_info.cos_similarity.append(cos_similarity.item())
         opt_info.global_latents_std.append(global_latents_std.item())
+        opt_info.contrast_accuracy.append(contrast_accuracy.item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
 
@@ -250,8 +256,10 @@ class DroneMST(BaseUlAlgorithm):
         obs_two_online_proj, _ = self.encoder(obs_two)
 
         spr_loss, pred_accuracies = self.spr_loss(obs_one_online_proj, obs_two_target_proj, prev_action, current_action)
-        contrast_loss, cos_similarity, global_latents_std = self.contrast_loss(obs_one_online_proj, obs_two_target_proj,
-                                                                               obs_two_online_proj, obs_one_target_proj)
+        contrast_loss, cos_similarity, global_latents_std, contrast_accuracy = self.contrast_loss(obs_one_online_proj,
+                                                                                                  obs_two_target_proj,
+                                                                                                  obs_two_online_proj,
+                                                                                                  obs_one_target_proj)
         inverse_dyna_loss, inverse_pred_accuracy,  = self.inverse_dyna_loss(obs_two_online_proj,
                                                                             obs_one_target_proj,
                                                                             direction_label,
@@ -260,7 +268,7 @@ class DroneMST(BaseUlAlgorithm):
         loss = spr_loss + contrast_loss + inverse_dyna_loss
 
         return loss, spr_loss, contrast_loss, inverse_dyna_loss, \
-            pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std
+            pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std, contrast_accuracy
 
     def spr_loss(self, obs_one_online_proj, obs_two_target_proj, prev_action, current_action):
         # agg_input = torch.cat((obs_one_online_proj[:self.warmup_T], prev_action[:self.warmup_T]), dim=-1)
@@ -270,7 +278,8 @@ class DroneMST(BaseUlAlgorithm):
 
         # test the forward pred without action
         agg_input = torch.cat((obs_one_online_proj, prev_action), dim=-1)
-        pred_next_states, _ = self.forward_agg_rnn(agg_input)
+        # pred_next_states, _ = self.forward_agg_rnn(agg_input)
+        pred_next_states = self.forward_agg_rnn(agg_input)
         pred_next_states = pred_next_states[self.warmup_T:]
 
         # pred_next_states [16, 16, 256]
@@ -332,9 +341,19 @@ class DroneMST(BaseUlAlgorithm):
         pred_one = self.online_predictor(obs_one_online_proj.view(-1, latent_dim))
         pred_two = self.online_predictor(obs_two_online_proj.view(-1, latent_dim))
 
-        loss_one = self.byol_loss_fn(pred_one, obs_one_target_proj)
-        loss_two = self.byol_loss_fn(pred_two, obs_two_target_proj)
-        contrast_loss = loss_one + loss_two
+        # loss_one = self.byol_loss_fn(pred_one, obs_one_target_proj)
+        # loss_two = self.byol_loss_fn(pred_two, obs_two_target_proj)
+        # contrast_loss = loss_one + loss_two
+        labels = torch.arange(T * B, dtype=torch.long, device=self.device)
+        logits_one = torch.matmul(pred_one, obs_two_target_proj.transpose(1, 0))  # [T*B, T*B]
+        logits_two = torch.matmul(pred_two, obs_one_target_proj.transpose(1, 0))
+        logits_one = logits_one - torch.max(logits_one, dim=1, keepdim=True)[0]
+        logits_two = logits_two - torch.max(logits_two, dim=1, keepdim=True)[0]
+        contrast_loss_one = self.c_e_loss(logits_one, labels)
+        contrast_loss_two = self.c_e_loss(logits_two, labels)
+        contrast_loss = (contrast_loss_one + contrast_loss_two)
+        correct = torch.argmax(logits_one.detach(), dim=1) == labels
+        contrast_accuracy = torch.mean(correct.float())
 
         global_latents = obs_one_online_proj.detach().view(-1, latent_dim)
         global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
@@ -344,11 +363,12 @@ class DroneMST(BaseUlAlgorithm):
         cos_sim = cos_sim*mask  # mask the similarity of every self
         offset = cos_sim.shape[-1] / (cos_sim.shape[-1] - 1)  # (T*B)/(T*B-1)
         cos_sim = cos_sim.mean() * offset
-        return contrast_loss.mean(), cos_sim, global_latents_std
+        return contrast_loss.mean(), cos_sim, global_latents_std, contrast_accuracy
 
     def inverse_dyna_loss(self, obs_two_online_proj, obs_one_target_proj, direction_label, action):
         rnn_input = torch.cat((obs_two_online_proj, action), dim=-1)
-        agg_states, _ = self.forward_agg_rnn(rnn_input)
+        # agg_states, _ = self.forward_agg_rnn(rnn_input)
+        agg_states = self.forward_agg_rnn(rnn_input)
 
         agg_states = agg_states[self.warmup_T:]
         direction_label = direction_label[self.warmup_T:]

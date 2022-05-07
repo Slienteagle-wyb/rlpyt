@@ -285,24 +285,27 @@ class Res18Encoder(torch.nn.Module):
                  latent_size,
                  hidden_sizes,
                  num_stacked_input=1,
-                 state_dict_path=None
+                 state_dict_path=None,
+                 image_shape=None,
                  ):
         super().__init__()
         self.num_stacked_input = num_stacked_input
-        state = torch.load(state_dict_path)
-        state_dict = state['state_dict']
-        for k in list(state_dict.keys()):
-            if 'backbone' in k:
-                state_dict[k.replace('backbone.', '')] = state_dict[k]
-            del state_dict[k]
         self.conv = resnet18()
         self.conv.conv1 = torch.nn.Conv2d(3, 64, kernel_size=7, stride=1, bias=False)
         self.conv.maxpool = torch.nn.Identity()
         self.conv.fc = torch.nn.Identity()
         # self.conv.avgpool = torch.nn.AdaptiveMaxPool2d((2, 2))
         # self.conv.avgpool = torch.nn.Identity()
-        self.conv.load_state_dict(state_dict, strict=False)
-        print('had successfully loaded the pretrained model params!!!')
+        if state_dict_path is not None:
+            print('loading the off-shelf pretrained model....')
+            state = torch.load(state_dict_path)
+            state_dict = state['state_dict']
+            for k in list(state_dict.keys()):
+                if 'backbone' in k:
+                    state_dict[k.replace('backbone.', '')] = state_dict[k]
+                del state_dict[k]
+            self.conv.load_state_dict(state_dict, strict=False)
+            print('had successfully loaded the pretrained model params!!!')
         self.output_shape = self.conv(torch.randn(1, 3, 144, 144)).shape
         self.head = ByolMlpModel(
             input_dim=self.output_shape[-1] * self.num_stacked_input,
@@ -333,6 +336,10 @@ class Res18Encoder(torch.nn.Module):
         c = self.head(img_embedding)
         c = restore_leading_dims(c, lead_dim, int(T // self.num_stacked_input), B)
         return c, conv
+
+    @property
+    def output_size(self):
+        return self.output_shape[-1]
 
 
 if __name__ == '__main__':

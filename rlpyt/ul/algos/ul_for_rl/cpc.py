@@ -1,5 +1,5 @@
 import torch
-import numpy as np
+import wandb
 from collections import namedtuple
 from rlpyt.utils.tensor import valid_mean
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
@@ -7,14 +7,13 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
-from rlpyt.utils.tensor import to_onehot
 from rlpyt.ul.models.ul.encoders import DmlabEncoderModel
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 
 
 IGNORE_INDEX = -100  # Mask CPC samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["cpcLoss", "cpcAccuracy1", "cpcAccuracy2", "cpcAccuracyTm1", "cpcAccuracyTm2",
-                                 "gradNorm"])
+                                 "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["cpcLoss", "cpcAccuracy1", "cpcAccuracy2",
                                  "cpcAccuracyTm1", "cpcAccuracyTm2", "convActivation"])
 
@@ -28,33 +27,33 @@ class CPC(BaseUlAlgorithm):
             batch_B,
             batch_T,
             warmup_T=0,
+            clip_grad_norm=1000.,
             learning_rate=5e-4,
             rnn_size=256,
             latent_size=256,
-            clip_grad_norm=1000.,
-            onehot_actions=False,
-            learning_rate_anneal=None,  # cosine
-            learning_rate_warmup=0,  # number of updates
-            OptimCls=torch.optim.Adam,
+            validation_split=0.0,
             ReplayCls=OfflineUlReplayBuffer,
             EncoderCls=DmlabEncoderModel,
-            validation_split=0.0,
-            optim_kwargs=None,
             initial_state_dict=None,
+            sched_kwargs=None,
             encoder_kwargs=None,
+            optim_kwargs=None,
             replay_kwargs=None,
             ):
-        optim_kwargs = dict() if optim_kwargs is None else optim_kwargs
         encoder_kwargs = dict() if encoder_kwargs is None else encoder_kwargs
         save__init__args(locals())
         self.c_e_loss = torch.nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
-        assert learning_rate_anneal in [None, "cosine"]
+
         self.batch_size = batch_B * batch_T  # for logging only
         self._replay_T = batch_T + warmup_T
 
-    def initialize(self, n_updates, cuda_idx=None):
+    def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
         examples = self.load_replay()
+        self.itrs_per_epoch = self.replay_buffer.size // self.batch_size
+        self.n_updates = epochs * self.itrs_per_epoch
+        self.image_shape = examples.observation.shape  # [c, h, w]
+
         self.encoder = self.EncoderCls(
             image_shape=examples.observation.shape,
             latent_size=self.latent_size,
@@ -62,15 +61,10 @@ class CPC(BaseUlAlgorithm):
         )
         self.encoder.to(self.device)
 
-        if self.onehot_actions:
-            max_act = self.replay_buffer.samples.action.max()
-            self._act_dim = max_act + 1  # To use for 1-hot encoding
-            ar_input_size = self._act_dim + 1  # for 1 step, + 1 reward
-        else:
-            assert len(self.replay_buffer.samples.translation.shape) == 3  # [T,B,A]
-            trans_dim = self.replay_buffer.translation_dim
-            rotate_dim = self.replay_buffer.rotation_dim
-            ar_input_size = rotate_dim + trans_dim  # no reward
+        assert len(self.replay_buffer.samples.translation.shape) == 3  # [T,B,A]
+        trans_dim = self.replay_buffer.translation_dim
+        rotate_dim = self.replay_buffer.rotation_dim
+        ar_input_size = rotate_dim + trans_dim  # no reward
 
         self.prediction_rnn = torch.nn.LSTM(
             input_size=int(self.latent_size + ar_input_size),
@@ -86,7 +80,7 @@ class CPC(BaseUlAlgorithm):
         self.transforms = torch.nn.ModuleList(transforms)
         self.transforms.to(self.device)
 
-        self.optim_initialize(n_updates)
+        self.optim_initialize(epochs)
 
         if self.initial_state_dict is not None:
             self.load_state_dict(self.initial_state_dict)
@@ -94,8 +88,11 @@ class CPC(BaseUlAlgorithm):
     def optimize(self, itr):
         opt_info = OptInfo(*([] for _ in range(len(OptInfo._fields))))
         samples = self.replay_buffer.sample_batch(self.batch_B)
-        if self.lr_scheduler is not None:
-            self.lr_scheduler.step(itr)  # Do every itr instead of every epoch
+        current_epoch = itr // self.itrs_per_epoch
+        if self.lr_scheduler is not None and itr % self.itrs_per_epoch == 0:
+            self.lr_scheduler.step(current_epoch)
+        current_lr = self.lr_scheduler.get_epoch_values(current_epoch)[0]
+
         self.optimizer.zero_grad()
         cpc_loss, cpc_accuracies, conv_output = self.cpc_loss(samples)
 
@@ -107,11 +104,13 @@ class CPC(BaseUlAlgorithm):
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.parameters(), self.clip_grad_norm)
         self.optimizer.step()
+
         opt_info.cpcLoss.append(cpc_loss.item())
         opt_info.cpcAccuracy1.append(cpc_accuracies[0].item())
         opt_info.cpcAccuracy2.append(cpc_accuracies[1].item())
         opt_info.cpcAccuracyTm1.append(cpc_accuracies[2].item())
         opt_info.cpcAccuracyTm2.append(cpc_accuracies[3].item())
+        opt_info.current_lr.append(current_lr)
         opt_info.gradNorm.append(grad_norm.item())
         return opt_info
 
@@ -119,11 +118,9 @@ class CPC(BaseUlAlgorithm):
         observation = samples.observations  # shape of observation [batch_T, batch_B, frame_stack, 3, 84, 84]
         length, b, f, c, h, w = observation.shape
         observation = observation.view(length, b*f, c, h, w)
-        translation = samples.translations
-        rotation = samples.rotations
-        action = torch.cat((translation, rotation), dim=-1)
-        if self.onehot_actions:
-            action = to_onehot(action, self._act_dim, dtype=torch.float)
+        prev_translation = samples.prev_translations
+        prev_rotation = samples.prev_rotations
+        action = torch.cat((prev_translation, prev_rotation), dim=-1)
         observation, action = buffer_to((observation, action), device=self.device)
         # encoder all the observation into latent space and the latent variable is passed by a nolinear projector
         z_latent, conv_output = self.encoder(observation)  # [T,B,z_dim]
@@ -261,3 +258,6 @@ class CPC(BaseUlAlgorithm):
         logger.log("Replay buffer loaded")
         example = self.replay_buffer.get_example()
         return example
+
+    def wandb_log_code(self):
+        wandb.save('./rlpyt/ul/algos/ul_for_rl/cpc.py')

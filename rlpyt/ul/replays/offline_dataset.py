@@ -37,7 +37,7 @@ class OfflineDatasets(Dataset):
         self.current_line = None
         self.next_line = None
         self.normalized_img = normalized_img
-        self.extract_img()
+        self.extract_data()
 
     # extract and tensorfy the data
     def extract_data(self):

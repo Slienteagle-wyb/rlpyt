@@ -6,7 +6,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel, DmlabEncoderModel
 
 
 class OfflineUMAP:
@@ -80,24 +80,26 @@ class OfflineUMAP:
 
 def main():
     device = 'cuda:0'
-    # model = DmlabEncoderModelNorm(
-    #     image_shape=(3, 84, 84),
-    #     latent_size=256,
-    #     hidden_sizes=512
-    # )
-    model = ResEncoderModel(
+    model = DmlabEncoderModel(
         image_shape=(3, 84, 84),
         latent_size=256,
-        hidden_sizes=512,
-        num_stacked_input=1
+        hidden_sizes=None
     )
-    state_dict_path = f'/home/yibo/Documents/rlpyt/data/local/20220501/210122/mst_pretrain/mst_0501_run1/params.pkl'
+    # model = ResEncoderModel(
+    #     image_shape=(3, 84, 84),
+    #     latent_size=256,
+    #     hidden_sizes=512,
+    #     num_stacked_input=1
+    # )
+    state_dict_path = f'/home/yibo/spaces/snap_shots/rlpyt_drone_representation/20220315/144748/cpc_pretrain/itr_199999.pkl'
     print('models loading state dict ....')
     loaded_state_dict = torch.load(state_dict_path,
                                    map_location=torch.device('cpu'))
     # the conv state dict was stored as encoder
     loaded_state_dict = loaded_state_dict.get('algo_state_dict', loaded_state_dict)
     loaded_state_dict = loaded_state_dict.get('encoder', loaded_state_dict)
+    for keys in loaded_state_dict:
+        print(keys)
     # conv_state_dict = OrderedDict([(k, v) for k, v in loaded_state_dict.items() if k.startswith('conv.')])
     model.load_state_dict(loaded_state_dict)
     print('conv encoder has loaded the pretrained model')
@@ -112,7 +114,7 @@ def main():
         forward_step=0,
     )
     batch = 64
-    plot_path = 'in_domain_mix_mst_res_umap.pdf'
+    plot_path = 'in_domain_cpc_umap.pdf'
 
     umap = OfflineUMAP()
     umap.plot(device, model, dataloader, batch, plot_path)

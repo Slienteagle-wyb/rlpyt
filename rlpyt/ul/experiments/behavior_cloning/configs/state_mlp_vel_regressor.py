@@ -5,7 +5,7 @@ config = dict(
     algo=dict(
         delta_T=0,  # forward predict step(of no usage)
         batch_T=1,
-        batch_B=512,
+        batch_B=256,
         latent_size=256,
         hidden_sizes=512,
         num_stacked_input=1,
@@ -17,13 +17,13 @@ config = dict(
         validation_split=0.0,
         with_validation=True,
         # f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
-        state_dict_filename=f'/home/yibo/spaces/snap_shots/rlpyt_drone_representation/20220315/144748/cpc_pretrain/itr_199999.pkl',
+        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220502/144915/mstc_pretrain/mst_0501_run1/params.pkl',
     ),
-    encoder=dict(
-        use_fourth_layer=True,
-        skip_connections=True,
-        kaiming_init=True,
-    ),
+    # encoder=dict(
+    #     use_fourth_layer=True,
+    #     skip_connections=True,
+    #     kaiming_init=True,
+    # ),
     # # convnext style encoder params
     # encoder=dict(
     #     res_depths=(32, 64, 64),
@@ -31,6 +31,8 @@ config = dict(
     #     blocks_per_group=3,
     #     expand_ratio=2
     # ),
+    encoder=dict(),
+
     optim=dict(
         optim_id='adamw',
         lr=1e-3,
@@ -54,7 +56,7 @@ config = dict(
         wandb_log_name=None,
     ),
     train_replay=dict(
-        img_size=84,
+        img_size=96,  # 96 for res18
         frame_stacks=1,
         data_path='/home/yibo/spaces/datasets/il_datasets',
         episode_length=4096,
@@ -65,7 +67,7 @@ config = dict(
         normalized_img=True,
     ),
     val_replay=dict(
-            img_size=84,
+            img_size=96,  # 96 for res18
             frame_stacks=1,
             data_path='/home/yibo/spaces/datasets/il_val_datasets',
             episode_length=4096,

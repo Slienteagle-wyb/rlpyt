@@ -16,8 +16,8 @@ default_config_key = "state_mlp_vel_regressor"
 variant_levles = list()
 
 keys = [('optim', 'lr'), ('runner', 'wandb_log_name'), ('algo', 'state_latent_dim')]
-values = [[5e-4, 'cpc_0505_in_domain_latent64_nostack', 64], [5e-4, 'cpc_0505_in_domain_latent256_nostack', 256]]
-dir_name = ['state_latent_dim_64_nostack', 'state_latent_dim_256_nostack']
+values = [[5e-4, 'mst_0506_mix_latent256_res18', 256]]
+dir_name = ['state_latent_dim_256_nostack']
 variant_levles.append(VariantLevel(keys, values, dir_name))
 
 variants, log_dirs = make_variants(*variant_levles)

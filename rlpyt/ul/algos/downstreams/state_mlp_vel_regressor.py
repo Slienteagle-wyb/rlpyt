@@ -2,7 +2,7 @@ import cv2
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel, DmlabEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel, DmlabEncoderModel, Res18Encoder
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -35,7 +35,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModel,
+            EncoderCls=Res18Encoder,
             MlpCls=MlpModel,
             state_dict_filename=None,
             sched_kwargs=None,
@@ -57,17 +57,17 @@ class StateVelRegressBc(BaseUlAlgorithm):
         self.itrs_per_epoch = self.train_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
         print(self.itrs_per_epoch, self.n_updates)
-        # self.encoder = self.EncoderCls(
-        #     image_shape=self.img_shape,
-        #     hidden_sizes=self.hidden_sizes,
-        #     latent_size=self.latent_size,
-        #     num_stacked_input=self.num_stacked_input,
-        #     **self.encoder_kwargs,
-        # )
         self.encoder = self.EncoderCls(
             image_shape=self.img_shape,
-            latent_size=self.latent_size
+            hidden_sizes=self.hidden_sizes,
+            latent_size=self.latent_size,
+            num_stacked_input=self.num_stacked_input,
+            **self.encoder_kwargs,
         )
+        # self.encoder = self.EncoderCls(
+        #     image_shape=self.img_shape,
+        #     latent_size=self.latent_size
+        # )
         # used as a byol style projector
         # self.state_projector = ByolMlpModel(
         #     input_dim=self.attitude_dim,
@@ -153,7 +153,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
             conv_out = self.encoder.conv(obs.reshape(length*batch_size*f, c, h, w))
-            conv_out.detach_()
+            # conv_out = conv_out.detach_()
         state_embedding = self.state_projector(attitude_states)
         policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
                                   state_embedding.reshape(length*batch_size, -1)), dim=-1)

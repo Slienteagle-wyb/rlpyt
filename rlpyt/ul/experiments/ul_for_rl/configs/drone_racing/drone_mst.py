@@ -2,7 +2,7 @@ configs = dict()
 
 config = dict(
     algo=dict(
-        batch_B=16,  # batch_size X time (16, 32)
+        batch_B=32,  # batch_size X time (16, 32)
         batch_T=32,  # batch_T = warm_up(16) + contrast_rollout(16)
         warmup_T=16,  # attention that the warmup_T is not influenced by num of stacked img input
         latent_size=256,
@@ -48,7 +48,7 @@ config = dict(
             lr_cycle_limit=2,
         ),
     runner=dict(
-        n_epochs=int(1000),  # base_n_epoch=1000
+        n_epochs=int(2000),  # base_n_epoch=1000
         log_interval_updates=int(1e3),
         wandb_log=True,
         wandb_log_name=None,
