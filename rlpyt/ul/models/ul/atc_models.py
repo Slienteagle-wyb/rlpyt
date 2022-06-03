@@ -50,6 +50,20 @@ class ByolMlpModel(torch.nn.Module):
         return self.net(x)
 
 
+class DroneStateProj(torch.nn.Module):
+    def __init__(self, input_dim, latent_size):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, latent_size),
+            torch.nn.LayerNorm(latent_size, eps=1e-3),
+            torch.nn.ELU()
+        )
+        self.apply(weight_init)
+
+    def forward(self, x):
+        return self.net(x)
+
+
 if __name__ == '__main__':
     model = ByolMlpModel(2048, 256, 6096)
     for params in model.named_parameters():

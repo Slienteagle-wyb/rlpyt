@@ -342,6 +342,65 @@ class Res18Encoder(torch.nn.Module):
         return self.output_shape[-1]
 
 
+class FusResEncoderModel(torch.nn.Module):
+    def __init__(self,
+                 image_shape,
+                 latent_size,
+                 hidden_sizes,
+                 num_stacked_input=3,
+                 res_depths=(32, 64, 64),
+                 downsampling_strides=(3, 2, 2),
+                 blocks_per_group=3,
+                 expand_ratio=2
+                 ):
+        super(FusResEncoderModel, self).__init__()
+        self.num_stacked_input = num_stacked_input
+        c, h, w = image_shape
+        c = c * num_stacked_input
+        self.conv = ResnetCNN(input_channels=c,
+                              depths=res_depths,
+                              strides=downsampling_strides,
+                              blocks_per_group=blocks_per_group,
+                              expand_ratio=expand_ratio)
+        self._output_size = self.conv.output_size(h, w)
+        self._output_shape = self.conv.output_shape(h, w)
+
+        self.spatial_head = ByolMlpModel(
+            input_dim=self._output_size,
+            hidden_size=hidden_sizes,
+            latent_size=latent_size
+        )
+        self.temporal_head = ByolMlpModel(
+            input_dim=self._output_size,
+            hidden_size=hidden_sizes,
+            latent_size=latent_size
+        )
+
+    def forward(self, observation):
+        lead_dim, T, B, img_shape = infer_leading_dims(observation, 3)
+        if observation.dtype == torch.uint8:
+            img = observation.type(torch.float)
+            img = img.mul_(1. / 255)
+        else:
+            img = observation
+        z = self.conv(img.reshape(T * B, *img_shape))
+        # spatial feature
+        z_spatial = self.spatial_head(z.reshape(T * B, -1))
+        # temporal feature
+        z_temporal = self.temporal_head(z.reshape(T * B, -1))
+        z_spatial, z_temporal, z = restore_leading_dims((z_spatial, z_temporal, z), lead_dim, T, B)
+
+        return z_spatial, z_temporal, z  # In case wanting to do something with conv output
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+
 if __name__ == '__main__':
     img = torch.randn((9, 1, 3, 144, 144))
     model = Res18Encoder(

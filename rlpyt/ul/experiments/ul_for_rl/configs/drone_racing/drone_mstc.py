@@ -2,28 +2,23 @@ configs = dict()
 
 config = dict(
     algo=dict(
-        batch_B=8,  # batch_size X time (16, 32)  11gxiancun
+        batch_B=16,  # batch_size X time (16, 32)  11gxiancun
         batch_T=32,  # batch_T = warm_up(16) + contrast_rollout(16)
-        warmup_T=16,  # attention that the warmup_T is not influenced by num of stacked img input
         latent_size=256,
         hidden_sizes=512,
         num_stacked_input=1,
         target_update_tau=0.01,
         augmentations=('blur', 'intensity'),
-        spr_loss_coefficient=2.0,
-        contrast_loss_coefficient=1.0,
-        inverse_dyna_loss_coefficient=1.0,
+        spatial_coefficient=1.0,
+        temporal_coefficient=1.0,
+        kl_coefficient=1.0,
         clip_grad_norm=10.,
     ),
-    # encoder configs of dm_lab encoder
-    # encoder=dict(
-    #     use_fourth_layer=True,
-    #     skip_connections=True,
-    #     kaiming_init=True,
-    # ),
-    # encoder config of resnet style encoder
     encoder=dict(
-        state_dict_path=f'/root/autodl-tmp/byol-400ep-imagenet100-ep=399.ckpt'
+        res_depths=(32, 64, 64),
+        downsampling_strides=(3, 2, 2),
+        blocks_per_group=3,
+        expand_ratio=2
     ),
     optim=dict(
         optim_id='adamw',
@@ -44,17 +39,23 @@ config = dict(
             lr_cycle_decay=0.2,
             lr_cycle_limit=2,
         ),
+    rssm=dict(
+        latent_dim=256,
+        num_gru_layers=1,
+        gru_type='gru',
+        layer_norm=True
+    ),
     runner=dict(
-        n_epochs=int(500),  # base_n_epoch=1000
+        n_epochs=int(1000),  # base_n_epoch=1000
         log_interval_updates=int(1e3),
         wandb_log=True,
         wandb_log_name=None,
-        snapshot_gap_intervals=40,  # the save interval factor(40 * 1k)
+        snapshot_gap_intervals=50,  # the save interval factor(40 * 1k)
     ),
     replay=dict(
-            img_size=96,
+            img_size=84,
             frame_stacks=1,  # the dim of F channel for the extracted batch
-            data_path=f'/root/autodl-tmp/cross_domain',
+            data_path=f'/home/yibo/spaces/datasets/cross_domain',
             episode_length=496,  # the length of T idx for the dataset replay
             num_runs=250,  # the dim of batch_idx for dataset replay (250 if full)
             forward_step=31,  # the forward step for extracting batch, total extracted batch_T = 1 + forward_step

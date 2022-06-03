@@ -67,7 +67,7 @@ class OfflineDatasets(Dataset):
                     self.next_line = actions[i + 1]
 
                 trans, rotation = self.rotation_trans(self.current_line, self.next_line)
-                velocity = action[-4:]  # extract the velocity from labels
+                velocity = action[7:11]  # extract the velocity from labels
                 attitude_quad = action[:4]
                 attitude_matrix = self.quad_to_matrix(attitude_quad)
                 direction_label = self.extract_direction(velocity)

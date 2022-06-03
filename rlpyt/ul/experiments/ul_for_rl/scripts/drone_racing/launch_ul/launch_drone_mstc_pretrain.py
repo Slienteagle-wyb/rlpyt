@@ -3,7 +3,7 @@ from rlpyt.utils.launching.exp_launcher import run_experiments
 from rlpyt.utils.launching.variant import make_variants, VariantLevel
 
 affinity_code = encode_affinity(
-    n_cpu_core=24,  # 6 for locals
+    n_cpu_core=16,  # 6 for locals
     n_gpu=1,
     contexts_per_gpu=1,  # How many experiment to share each GPU
 )
@@ -14,10 +14,10 @@ experiment_title = "mstc_pretrain"
 variant_levels = list()
 
 # make a variant of runs
-keys = [('algo', 'spr_loss_coefficient'), ('algo', 'contrast_loss_coefficient'),
-        ('algo', 'inverse_dyna_loss_coefficient'), ('runner', 'wandb_log_name')]
-values = [[2.0, 0.2, 1.0, 'mst_0501_mix_res18_byol_spr2'], ]
-dir_names = ['mst_0501_run1']
+keys = [('algo', 'kl_coefficient'), ('algo', 'spatial_coefficient'),
+        ('algo', 'temporal_coefficient'), ('runner', 'wandb_log_name')]
+values = [[1.0, 1.0, 1.0, 'mst_0603_mix_res_rssm_sp'], ]
+dir_names = ['mstc_0603_run']
 variant_levels.append(VariantLevel(keys, values, dir_names))
 
 
