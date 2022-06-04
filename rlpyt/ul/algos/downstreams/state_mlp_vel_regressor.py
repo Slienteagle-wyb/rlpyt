@@ -1,8 +1,7 @@
-import cv2
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel, DmlabEncoderModel, Res18Encoder
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, DmlabEncoderModel, Res18Encoder, FusResEncoderModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -35,7 +34,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=Res18Encoder,
+            EncoderCls=FusResEncoderModel,
             MlpCls=MlpModel,
             state_dict_filename=None,
             sched_kwargs=None,

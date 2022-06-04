@@ -270,7 +270,6 @@ class DroneMSTC(BaseUlAlgorithm):
 
     def spatial_temporal_loss(self, online_temporal_embed_one, target_temporal_embed_one, prev_action):
         T, B, latent_dim = online_temporal_embed_one.shape
-
         init_state = self.rssm_model.init_state(B)
         target_temporal_embed_one = target_temporal_embed_one.detach()
 
@@ -282,7 +281,8 @@ class DroneMSTC(BaseUlAlgorithm):
 
         # ----- temporal stream ----- #
         # calculate partial pred contrast loss
-        online_priors, online_h_partial, online_z_pred, _ = self.rssm_model(online_temporal_embed_one,
+        online_temporal_embed_one_rssm = online_temporal_embed_one.clone()
+        online_priors, online_h_partial, online_z_pred, _ = self.rssm_model(online_temporal_embed_one_rssm.detach(),
                                                                             prev_action, init_state, forward_pred=True)
 
         partial_pred = self.partial_trans(online_h_partial[1:]).view(-1, target_z_repre.shape[-1])  # ((T-1)*B, latent_dim)
@@ -310,7 +310,6 @@ class DroneMSTC(BaseUlAlgorithm):
         online_priors = dist(online_priors)
         target_posts = dist(target_posts.detach())
         kl_loss = D.kl.kl_divergence(target_posts, online_priors).mean()
-        kl_loss = torch.clamp(kl_loss, 0.0, 1.0)
 
         # calculate metrics
         partial_pred_correct = torch.argmax(partial_logits.detach(), dim=1) == labels

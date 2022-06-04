@@ -16,8 +16,8 @@ variant_levels = list()
 # make a variant of runs
 keys = [('algo', 'kl_coefficient'), ('algo', 'spatial_coefficient'),
         ('algo', 'temporal_coefficient'), ('runner', 'wandb_log_name')]
-values = [[1.0, 1.0, 1.0, 'mst_0603_mix_res_rssm_sp'], ]
-dir_names = ['mstc_0603_run']
+values = [[1.0, 1.0, 1.0, 'mst_0604_mix_res_rssm_sep_grad'], ]
+dir_names = ['mstc_0604_run']
 variant_levels.append(VariantLevel(keys, values, dir_names))
 
 
