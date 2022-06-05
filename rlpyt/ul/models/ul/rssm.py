@@ -120,12 +120,13 @@ def diag_normal(x, min_std=0.1, max_std=2.0):
 
 class RSSMCore(nn.Module):
     def __init__(self, embed_dim, action_dim, deter_dim, device,
-                 stoch_dim, stoch_discrete, latent_dim,
+                 stoch_dim, stoch_discrete, latent_dim, warmup_T,
                  num_gru_layers, gru_type, layer_norm=True):
         super().__init__()
         self.cell = RSSMCell(embed_dim, action_dim, deter_dim, device,
                              stoch_dim, stoch_discrete, latent_dim,
                              num_gru_layers, gru_type, layer_norm)
+        self.warmup_T = warmup_T
 
     def forward(self, embeds, actions, in_state, forward_pred=False):
         T, B = embeds.shape[:2]
@@ -133,8 +134,15 @@ class RSSMCore(nn.Module):
         states_h = []
         samples = []
         (h_prev, z_prev) = in_state
+        # warmup the forward model
+        for i in range(self.warmup_T):
+            post, (h_prev, z_prev) = self.cell.forward(embeds[i].squeeze(), actions[i].squeeze(), (h_prev, z_prev))
+            posts.append(post)  # real posterior of the representation model
 
-        for i in range(T):
+            states_h.append(h_prev)
+            samples.append(z_prev)
+        # calculate the forward pred or full agg
+        for i in range(self.warmup_T, T):
             if not forward_pred:
                 post, (h_prev, z_prev) = self.cell.forward(embeds[i].squeeze(), actions[i].squeeze(), (h_prev, z_prev))
                 posts.append(post)  # real posterior of the representation model

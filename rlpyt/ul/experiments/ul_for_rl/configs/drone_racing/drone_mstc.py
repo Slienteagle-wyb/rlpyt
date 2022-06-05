@@ -4,6 +4,7 @@ config = dict(
     algo=dict(
         batch_B=16,  # batch_size X time (16, 32)  11gxiancun
         batch_T=32,  # batch_T = warm_up(16) + contrast_rollout(16)
+        warmup_T=16,
         latent_size=256,
         hidden_sizes=512,
         num_stacked_input=1,

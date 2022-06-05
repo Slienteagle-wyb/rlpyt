@@ -300,7 +300,7 @@ class DroneMST(BaseUlAlgorithm):
 
         # total predictions pairs: P=T*(T-1)/2*B
         prdictions = torch.cat(prediction_list)  # [P, z_dim]
-        labels = torch.cat(label_list)  # [P]
+        labels = torch.cat(label_list)  # [P, 1]
         logits = torch.matmul(prdictions, target_trans)  # [P, z_dim] * [z_dim, T*B]
         logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
         spr_loss = self.c_e_loss(logits, labels)
