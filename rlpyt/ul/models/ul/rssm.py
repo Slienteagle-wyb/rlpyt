@@ -147,7 +147,7 @@ class RSSMCore(nn.Module):
                 post, (h_prev, z_prev) = self.cell.forward(embeds[i].squeeze(), actions[i].squeeze(), (h_prev, z_prev))
                 posts.append(post)  # real posterior of the representation model
             else:
-                prior, (h_prev, z_prev) = self.cell.forward(embeds[i].squeeze(), actions[i].squeeze(), (h_prev, z_prev))
+                prior, (h_prev, z_prev) = self.cell.forward_pred(actions[i].squeeze(), (h_prev, z_prev))
                 posts.append(prior)  # fake posterior of transition predictor model
 
             states_h.append(h_prev)  # h_full for not forward pred else h_partial

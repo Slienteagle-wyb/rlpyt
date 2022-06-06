@@ -23,7 +23,8 @@ import torch.distributions as D
 
 IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["mstcLoss", "spatialLoss", "temporalLoss", 'klLoss',
-                                 'entropy_posts', 'entropy_priors', "predAccuracy", "predAccuracyTm",
+                                 'entropy_posts', 'entropy_priors', 'partialPredAccuracy',
+                                 'fullPredAccuracy',
                                  'cos_similarity', "gradNorm", 'current_lr'])
 
 ValInfo = namedtuple("ValInfo", ["mstLoss", "accuracy", "convActivation"])
@@ -102,12 +103,15 @@ class DroneMSTC(BaseUlAlgorithm):
         )
         self.target_drone_state_proj = copy.deepcopy(self.drone_state_proj)
 
-        transforms = [None]
-        for _ in range(self.batch_T - self.warmup_T - 1):
-            transforms.append(
-                torch.nn.Linear(in_features=self.hidden_sizes, out_features=self.hidden_sizes, bias=False)
-            )
-        self.transforms = torch.nn.ModuleList(transforms)
+        # transforms = [None]
+        # for _ in range(self.batch_T - self.warmup_T - 1):
+        #     transforms.append(
+        #         torch.nn.Linear(in_features=self.hidden_sizes, out_features=self.hidden_sizes, bias=False)
+        #     )
+        # self.transforms = torch.nn.ModuleList(transforms)
+
+        self.partial_trans = torch.nn.Linear(self.hidden_sizes, self.stoch_dim * (self.stoch_discrete or 1), bias=False)
+        self.full_trans = torch.nn.Linear(self.latent_size, self.hidden_sizes, bias=False)
 
         self.spatial_predictor = ByolMlpModel(
             input_dim=self.latent_size,
@@ -138,7 +142,8 @@ class DroneMSTC(BaseUlAlgorithm):
         self.spatial_predictor.to(self.device)
         # self.spatial_temporal_predictor.to(self.device)
         self.rssm_model.to(self.device)
-        self.transforms.to(self.device)
+        self.partial_trans.to(self.device)
+        self.full_trans.to(self.device)
 
         self.optim_initialize(epochs)
 
@@ -156,12 +161,14 @@ class DroneMSTC(BaseUlAlgorithm):
 
         self.optimizer.zero_grad()
         # calculate the loss func
-        spatial_loss, partial_loss, kl_loss, accuracies, cos_sim, entropy_posts, entropy_priors = self.mstc_loss(samples)
+        spatial_loss, temporal_loss, kl_loss, partial_pred_accuracy, \
+        full_pred_accuracy, cos_sim, entropy_posts, entropy_priors = self.mstc_loss(samples)
 
-        optimize_loss = self.spatial_coefficient * spatial_loss + self.temporal_coefficient * partial_loss
+        optimize_loss = self.spatial_coefficient * spatial_loss + self.temporal_coefficient * temporal_loss + \
+                        self.kl_coefficient * kl_loss
         optimize_loss.backward()
 
-        loss = spatial_loss + partial_loss + kl_loss
+        loss = spatial_loss + temporal_loss + kl_loss
 
         if self.clip_grad_norm is None:
             grad_norm = 0.
@@ -173,13 +180,15 @@ class DroneMSTC(BaseUlAlgorithm):
         # log the optimize info/result
         opt_info.mstcLoss.append(loss.item())
         opt_info.spatialLoss.append(spatial_loss.item())
-        opt_info.temporalLoss.append(partial_loss.item())
+        opt_info.temporalLoss.append(temporal_loss.item())
         opt_info.klLoss.append(kl_loss.item())
+        opt_info.partialPredAccuracy.append(partial_pred_accuracy.item())
+        opt_info.fullPredAccuracy.append(full_pred_accuracy.item())
         opt_info.cos_similarity.append(cos_sim.item())
         opt_info.entropy_posts.append(entropy_posts.item())
         opt_info.entropy_priors.append(entropy_priors.item())
-        opt_info.predAccuracy.append(accuracies[0].item())
-        opt_info.predAccuracyTm.append(accuracies[1].item())
+        # opt_info.predAccuracy.append(accuracies[0].item())
+        # opt_info.predAccuracyTm.append(accuracies[1].item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
 
@@ -241,11 +250,11 @@ class DroneMSTC(BaseUlAlgorithm):
 
         spatial_loss, cos_sim = self.spatial_loss(online_spatial_embed_one, online_spatial_embed_two,
                                                   target_spatial_embed_one, target_spatial_embed_two)
-        partial_loss, kl_loss, entropy_posts, entropy_prior, accuracies \
+        temporal_loss, kl_loss, partial_pred_accuracy, full_pred_accuracy, entropy_posts, entropy_prior \
             = self.spatial_temporal_loss(online_temporal_embed_one, target_temporal_embed_one, prev_action)
 
-        return spatial_loss, partial_loss, kl_loss, accuracies,\
-            cos_sim, entropy_posts, entropy_prior
+        return spatial_loss, temporal_loss, kl_loss, partial_pred_accuracy, \
+               full_pred_accuracy, cos_sim, entropy_posts, entropy_prior
 
     def spatial_loss(self, online_spatial_embed_one, online_spatial_embed_two,
                      target_spatial_embed_one, target_spatial_embed_two):
@@ -273,6 +282,7 @@ class DroneMSTC(BaseUlAlgorithm):
         return spatial_loss, cos_sim
 
     def spatial_temporal_loss(self, online_temporal_embed_one, target_temporal_embed_one, prev_action):
+        T, B, latent_dim = online_temporal_embed_one.shape
         init_state = self.rssm_model.init_state(self.batch_B)
         target_temporal_embed_one = target_temporal_embed_one.detach()
 
@@ -283,58 +293,30 @@ class DroneMSTC(BaseUlAlgorithm):
                                                                                            forward_pred=False)
 
         # ----- temporal stream ----- #
-        # calculate cpc_style pred contrast loss
-        online_priors, online_h_partial, online_z_pred, _ = self.rssm_model(online_temporal_embed_one,
+        # calculate partial pred contrast loss
+        online_temporal_embed_one_rssm = online_temporal_embed_one.clone()
+        online_priors, online_h_partial, online_z_pred, _ = self.rssm_model(online_temporal_embed_one_rssm.detach(),
                                                                             prev_action, init_state, forward_pred=True)
 
-        online_h_partial = online_h_partial[self.warmup_T:]
-        target_h_full = target_h_full[self.warmup_T:]
-        T, B, hidden_size = target_h_full.shape
-        target_h_full = target_h_full.detach().reshape(-1, hidden_size).transpose(1, 0)
-        base_labels = torch.arange(T * B, dtype=torch.long, device=self.device).view(T, B)
-        pred_list = []
-        label_list = []
-        # delta_t is the num of forward pred steps
-        for delta_t in range(1, T):
-            pred_list.append(self.transforms[delta_t](online_h_partial[:-delta_t].view(-1, hidden_size)))
-            label_list.append(base_labels[delta_t:].view(-1))
-
-        forward_steps = [0] + [len(label) for label in label_list]
-        cumulative_forward_steps = torch.cumsum(torch.tensor(forward_steps), dim=0)
-
-        partial_preds = torch.cat(pred_list, dim=0)
-        labels = torch.cat(label_list, dim=0)
-        logits = torch.matmul(partial_preds, target_h_full)
-        logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
-        partial_loss = self.c_e_loss(logits, labels)
-
-        ################################################
-        # calculate the prediction metrix
-        logits_d = logits.detach()
-        # begin, end, step (downsample==sample from one step forward predictions every 4 steps):
-        b, e, s = cumulative_forward_steps[0], cumulative_forward_steps[1], 4  # delta_t = 1
-        logits1, labels1 = logits_d[b:e:s], labels[b:e:s]
-        correct1 = torch.argmax(logits1, dim=1) == labels1
-        accuracy1 = valid_mean(correct1.float(), valid=labels1 >= 0)  # IGNORE=-100
-
-        b, e, s = cumulative_forward_steps[1], cumulative_forward_steps[2], 4  # delta_t = 2
-        logits2, labels2 = logits_d[b:e:s], labels[b:e:s]
-        correct2 = torch.argmax(logits2, dim=1) == labels2
-        accuracy2 = valid_mean(correct2.float(), valid=labels2 >= 0)
-
-        b, e, s = cumulative_forward_steps[-2], cumulative_forward_steps[-1], 1  # delta_t = T - 1
-        logitsT1, labelsT1 = logits_d[b:e:s], labels[b:e:s]
-        correctT1 = torch.argmax(logitsT1, dim=1) == labelsT1
-        accuracyT1 = valid_mean(correctT1.float(), valid=labelsT1 >= 0)
-
-        b, e, s = cumulative_forward_steps[-3], cumulative_forward_steps[-2], 1  # delta_t = T - 2
-        logitsT2, labelsT2 = logits_d[b:e:s], labels[b:e:s]
-        correctT2 = torch.argmax(logitsT2, dim=1) == labelsT2
-        accuracyT2 = valid_mean(correctT2.float(), valid=labelsT2 >= 0)
-
-        accuracy_forth = torch.mean(accuracy1 + accuracy2)
-        accuracy_inverse = torch.mean(accuracyT1 + accuracyT2)
-        accuracies = (accuracy_forth, accuracy_inverse)
+        partial_pred = self.partial_trans(online_h_partial[1:]).view(-1, target_z_repre.shape[-1])  # ((T-1)*B, latent_dim)
+        target_z_repre = target_z_repre.detach()[:-1].view(-1, target_z_repre.shape[-1]).transpose(1, 0)  # (latent_dim, (T-1)*B)
+        partial_logits = torch.matmul(partial_pred, target_z_repre)  # ((T-1)*B, (T-1)*B)
+        partial_logits = partial_logits - torch.max(partial_logits, dim=1, keepdim=True)[0]
+        # calculate full pred contrast loss
+        full_pred = self.full_trans(online_temporal_embed_one[:-1]).view(-1, target_h_full.shape[-1])
+        target_h_full = target_h_full.detach()[1:].view(-1, target_h_full.shape[-1]).transpose(1, 0)
+        full_logits = torch.matmul(full_pred, target_h_full)
+        full_logits = full_logits - torch.max(full_logits, dim=1, keepdim=True)[0]
+        # calculate loss
+        labels = torch.arange((T - 1) * B, dtype=torch.long, device=self.device)
+        partial_loss = self.c_e_loss(partial_logits, labels)
+        full_loss = self.c_e_loss(full_logits, labels)
+        temporal_loss = partial_loss + full_loss
+        # ----- spatial_temporal stream ----- #
+        # feature_dim = target_features.shape[-1]
+        # target_features = target_features.detach().view(-1, feature_dim)
+        # cross_pred = self.spatial_temporal_predictor(online_spatial_embed_one.reshape(-1, self.latent_size))
+        # cross_loss = self.byol_loss_fn(cross_pred, target_features)
 
         # ----- calculate KL loss ----- #
         dist = self.rssm_model.zdistr
@@ -343,10 +325,15 @@ class DroneMSTC(BaseUlAlgorithm):
         kl_loss = D.kl.kl_divergence(target_posts, online_priors).mean()
 
         # calculate metrics
+        partial_pred_correct = torch.argmax(partial_logits.detach(), dim=1) == labels
+        partial_pred_accuracy = torch.mean(partial_pred_correct.float())
+        full_pred_correct = torch.argmax(full_logits.detach(), dim=1) == labels
+        full_pred_accuracy = torch.mean(full_pred_correct.float())
         entropy_prior = online_priors.entropy().mean()
         entropy_posts = target_posts.entropy().mean()
 
-        return partial_loss, kl_loss, entropy_posts, entropy_prior, accuracies
+        return temporal_loss, kl_loss, partial_pred_accuracy, full_pred_accuracy, \
+               entropy_posts, entropy_prior
 
     def byol_loss_fn(self, x, y):
         x = F.normalize(x, dim=-1, p=2)
