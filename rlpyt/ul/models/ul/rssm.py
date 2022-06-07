@@ -155,11 +155,12 @@ class RSSMCore(nn.Module):
 
         posts = torch.stack(posts)
         states_h = torch.stack(states_h)
+        priors = self.cell.batch_prior(states_h)
         samples = torch.stack(samples)
         features = torch.cat((states_h, samples), -1)
         # states = (states_h, samples)
 
-        return posts, states_h, samples, features
+        return posts, states_h, samples, features, priors
 
     def init_state(self, batch_size):
         return self.cell.init_state(batch_size)
