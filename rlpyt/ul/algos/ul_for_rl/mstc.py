@@ -304,14 +304,19 @@ class DroneMSTC(BaseUlAlgorithm):
         # ----- temporal stream ----- #
         # calculate partial pred contrast loss
         online_temporal_embed_one_rssm = online_temporal_embed_one.clone()
-        online_posts, online_h_partial, online_z_pred, online_features, online_priors = self.rssm_model(online_temporal_embed_one_rssm,
-                                                                                                        prev_action, init_state,
-                                                                                                        forward_pred=False)
+        online_posts, online_h_full, online_z_reper, online_features, online_priors = self.rssm_model(online_temporal_embed_one_rssm,
+                                                                                                         prev_action, init_state,
+                                                                                                         forward_pred=False)
+        online_priors_dist = self.rssm_model.zdistr(online_priors)
+        online_z_pred = online_priors_dist.rsample().reshape(T, B, -1)
+        online_pred_features = torch.cat((online_h_full, online_z_pred), dim=-1)
 
+        # calculate embed to full_feature pred loss and back_propagate to encoder
         pred_features = self.feature_pred_head(online_temporal_embed_one.reshape(-1, self.latent_size))
         target_features = target_features.detach().view(-1, feature_dim)
         feature_pred_loss = self.byol_loss_fn(pred_features, target_features)
-        pred_embeds = self.image_embed_pred_head(online_features.reshape(-1, feature_dim))
+        # calculate pred_feature to embed prediction loss and back_propagate to
+        pred_embeds = self.image_embed_pred_head(online_pred_features.reshape(-1, feature_dim))
         target_embeds = target_temporal_embed_one.view(-1, self.latent_size)
         embed_pred_loss = self.byol_loss_fn(pred_embeds, target_embeds)
         temporal_loss = feature_pred_loss + embed_pred_loss
