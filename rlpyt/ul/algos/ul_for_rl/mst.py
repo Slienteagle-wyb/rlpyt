@@ -9,8 +9,8 @@ from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.models.utils import update_state_dict
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm, ResEncoderModel
-from rlpyt.ul.models.ul.atc_models import ByolMlpModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm, ResEncoderModel, FusResEncoderModel
+from rlpyt.ul.models.ul.atc_models import ByolMlpModel, DroneStateProj
 from rlpyt.ul.algos.utils.data_augs import get_augmentation, random_shift
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.models.ul.inverse_models import InverseModelHead
@@ -89,7 +89,6 @@ class DroneMST(BaseUlAlgorithm):
             num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs
         )
-
         self.target_encoder = copy.deepcopy(self.encoder)  # the target encoder is not tied with online encoder
 
         self.online_predictor = ByolMlpModel(
@@ -98,6 +97,12 @@ class DroneMST(BaseUlAlgorithm):
             hidden_size=self.hidden_sizes
         )
 
+        self.drone_state_proj = DroneStateProj(
+            input_dim=self.attitude_dim + self.vel_state_dim,
+            latent_size=self.latent_size
+        )
+        self.target_drone_state_proj = copy.deepcopy(self.drone_state_proj)
+
         # self.forward_agg_rnn = SkipConnectForwardAggModel(
         #     input_size=int(self.latent_size + forward_input_size),
         #     hidden_sizes=self.hidden_sizes,
@@ -105,6 +110,7 @@ class DroneMST(BaseUlAlgorithm):
         #     num_layers=1,
         #     skip_connect=False,
         # )
+
         self.forward_agg_rnn = ForwardAggRnnModel(
             input_size=int(self.latent_size + forward_input_size),
             hidden_sizes=self.hidden_sizes,

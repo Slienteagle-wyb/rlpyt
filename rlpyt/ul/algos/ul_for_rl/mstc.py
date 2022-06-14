@@ -23,7 +23,7 @@ import torch.distributions as D
 
 IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
 OptInfo = namedtuple("OptInfo", ["mstcLoss", "spatialLoss", "temporalLoss", 'klLoss',
-                                 'entropy_posts', 'entropy_priors',
+                                 'entropy_posts', 'entropy_priors', 'embedPredAccuracy',
                                  'cos_similarity', "gradNorm", 'current_lr'])
 
 ValInfo = namedtuple("ValInfo", ["mstLoss", "accuracy", "convActivation"])
@@ -103,6 +103,17 @@ class DroneMSTC(BaseUlAlgorithm):
         )
         self.target_drone_state_proj = copy.deepcopy(self.drone_state_proj)
 
+        self.rssm_model = RSSMCore(
+            embed_dim=self.latent_size,
+            action_dim=forward_input_size,
+            deter_dim=self.hidden_sizes,
+            device=self.device,
+            stoch_dim=self.stoch_dim,
+            stoch_discrete=self.stoch_discrete,
+            warmup_T=self.warmup_T,
+            **self.rssm_kwargs
+        )
+
         # transforms = [None]
         # for _ in range(self.batch_T - self.warmup_T - 1):
         #     transforms.append(
@@ -113,13 +124,13 @@ class DroneMSTC(BaseUlAlgorithm):
         # self.partial_trans = torch.nn.Linear(self.hidden_sizes, self.stoch_dim * (self.stoch_discrete or 1), bias=False)
         # self.full_trans = torch.nn.Linear(self.latent_size, self.hidden_sizes, bias=False)
 
-        self.feature_pred_head = ByolMlpModel(
-            input_dim=self.latent_size,
-            latent_size=self.hidden_sizes + self.stoch_dim * (self.stoch_discrete or 1),
-            hidden_size=self.hidden_sizes
-        )
-        self.image_embed_pred_head = ByolMlpModel(
-            input_dim=self.hidden_sizes + self.stoch_dim * (self.stoch_discrete or 1),
+        # self.latent_pred_head = ByolMlpModel(
+        #     input_dim=self.latent_size,
+        #     latent_size=self.hidden_sizes,
+        #     hidden_size=self.hidden_sizes
+        # )
+        self.embed_pred_head = ByolMlpModel(
+            input_dim=self.rssm_model.feat_dim,
             latent_size=self.latent_size,
             hidden_size=self.hidden_sizes
         )
@@ -135,17 +146,6 @@ class DroneMSTC(BaseUlAlgorithm):
         #     hidden_size=self.hidden_sizes
         # )
 
-        self.rssm_model = RSSMCore(
-            embed_dim=self.latent_size,
-            action_dim=forward_input_size,
-            deter_dim=self.hidden_sizes,
-            device=self.device,
-            stoch_dim=self.stoch_dim,
-            stoch_discrete=self.stoch_discrete,
-            warmup_T=self.warmup_T,
-            **self.rssm_kwargs
-        )
-
         self.encoder.to(self.device)
         self.target_encoder.to(self.device)
         self.drone_state_proj.to(self.device)
@@ -153,8 +153,9 @@ class DroneMSTC(BaseUlAlgorithm):
         self.spatial_predictor.to(self.device)
         # self.spatial_temporal_predictor.to(self.device)
         self.rssm_model.to(self.device)
-        self.feature_pred_head.to(self.device)
-        self.image_embed_pred_head.to(self.device)
+        self.embed_pred_head.to(self.device)
+        # self.partial_trans.to(self.device)
+        # self.full_trans.to(self.device)
 
         self.optim_initialize(epochs)
 
@@ -172,7 +173,8 @@ class DroneMSTC(BaseUlAlgorithm):
 
         self.optimizer.zero_grad()
         # calculate the loss func
-        spatial_loss, temporal_loss, kl_loss, cos_sim, entropy_posts, entropy_priors = self.mstc_loss(samples)
+        spatial_loss, temporal_loss, kl_loss, embed_pred_accuracy, cos_sim, entropy_posts, entropy_priors = \
+            self.mstc_loss(samples)
 
         optimize_loss = self.spatial_coefficient * spatial_loss + self.temporal_coefficient * temporal_loss + \
                         self.kl_coefficient * kl_loss
@@ -192,6 +194,7 @@ class DroneMSTC(BaseUlAlgorithm):
         opt_info.spatialLoss.append(spatial_loss.item())
         opt_info.temporalLoss.append(temporal_loss.item())
         opt_info.klLoss.append(kl_loss.item())
+        opt_info.embedPredAccuracy.append(embed_pred_accuracy.item())
         opt_info.cos_similarity.append(cos_sim.item())
         opt_info.entropy_posts.append(entropy_posts.item())
         opt_info.entropy_priors.append(entropy_priors.item())
@@ -258,11 +261,10 @@ class DroneMSTC(BaseUlAlgorithm):
 
         spatial_loss, cos_sim = self.spatial_loss(online_spatial_embed_one, online_spatial_embed_two,
                                                   target_spatial_embed_one, target_spatial_embed_two)
-        temporal_loss, kl_loss, entropy_posts, entropy_prior = self.spatial_temporal_loss(online_temporal_embed_one,
-                                                                                          target_temporal_embed_one,
-                                                                                          prev_action)
+        temporal_loss, kl_loss, embed_pred_accuracy, entropy_posts, entropy_prior \
+            = self.spatial_temporal_loss(online_temporal_embed_one, target_temporal_embed_one, prev_action)
 
-        return spatial_loss, temporal_loss, kl_loss, cos_sim, entropy_posts, entropy_prior
+        return spatial_loss, temporal_loss, kl_loss, embed_pred_accuracy, cos_sim, entropy_posts, entropy_prior
 
     def spatial_loss(self, online_spatial_embed_one, online_spatial_embed_two,
                      target_spatial_embed_one, target_spatial_embed_two):
@@ -290,58 +292,44 @@ class DroneMSTC(BaseUlAlgorithm):
         return spatial_loss, cos_sim
 
     def spatial_temporal_loss(self, online_temporal_embed_one, target_temporal_embed_one, prev_action):
+        T, B, latent_dim = online_temporal_embed_one.shape
         init_state = self.rssm_model.init_state(self.batch_B)
         target_temporal_embed_one = target_temporal_embed_one.detach()
 
-        with torch.no_grad():
-            # target full branch
-            target_temporal_embed_one_rssm = target_temporal_embed_one.clone()
-            target_posts, target_h_full, target_z_repre, target_features, target_priors = self.rssm_model(target_temporal_embed_one_rssm,
-                                                                                                          prev_action, init_state,
-                                                                                                          forward_pred=False)
-
-        T, B, feature_dim = target_features.shape
         # ----- temporal stream ----- #
         # calculate partial pred contrast loss
-        online_temporal_embed_one_rssm = online_temporal_embed_one.clone()
-        online_posts, online_h_full, online_z_reper, online_features, online_priors = self.rssm_model(online_temporal_embed_one_rssm,
-                                                                                                         prev_action, init_state,
-                                                                                                         forward_pred=False)
-        online_priors_dist = self.rssm_model.zdistr(online_priors)
-        online_z_pred = online_priors_dist.rsample().reshape(T, B, -1)
-        online_pred_features = torch.cat((online_h_full, online_z_pred), dim=-1)
+        online_posts, online_h_partial, online_z_pred, online_features, online_priors = self.rssm_model(online_temporal_embed_one,
+                                                                                                        prev_action, init_state,
+                                                                                                        forward_pred=False)
 
-        # calculate embed to full_feature pred loss and back_propagate to encoder
-        pred_features = self.feature_pred_head(online_temporal_embed_one.reshape(-1, self.latent_size))
-        target_features = target_features.detach().view(-1, feature_dim)
-        feature_pred_loss = self.byol_loss_fn(pred_features, target_features)
-        # calculate pred_feature to embed prediction loss and back_propagate to
-        pred_embeds = self.image_embed_pred_head(online_pred_features.reshape(-1, feature_dim))
-        target_embeds = target_temporal_embed_one.view(-1, self.latent_size)
-        embed_pred_loss = self.byol_loss_fn(pred_embeds, target_embeds)
-        temporal_loss = feature_pred_loss + embed_pred_loss
+        embed_pred = self.embed_pred_head(online_features.view(-1, self.rssm_model.feat_dim))
+        target_temporal_embed_one = target_temporal_embed_one.view(-1, latent_dim).transpose(1, 0)  # (latent_dim, (T-1)*B)
+        embed_logits = torch.matmul(embed_pred, target_temporal_embed_one)  # ((T-1)*B, (T-1)*B)
+        embed_logits = embed_logits - torch.max(embed_pred, dim=1, keepdim=True)[0]
 
-        # ----- spatial_temporal stream ----- #
-        # feature_dim = target_features.shape[-1]
-        # target_features = target_features.detach().view(-1, feature_dim)
-        # cross_pred = self.spatial_temporal_predictor(online_spatial_embed_one.reshape(-1, self.latent_size))
-        # cross_loss = self.byol_loss_fn(cross_pred, target_features)
+        # calculate loss
+        labels = torch.arange(T * B, dtype=torch.long, device=self.device)
+        embed_loss = self.c_e_loss(embed_logits, labels)
+        temporal_loss = embed_loss
 
         # ----- calculate KL loss ----- #
         dist = self.rssm_model.zdistr
-        online_priors = dist(online_priors)
-        online_posts = dist(online_posts)
-        target_priors = dist(target_priors.detach())
-        target_posts = dist(target_posts.detach())
-        kl_loss_post = D.kl.kl_divergence(online_posts, target_priors).mean()
-        kl_loss_prior = D.kl.kl_divergence(target_posts, online_priors).mean()
-        kl_loss = (1 - self.kl_balance) * kl_loss_post + self.kl_balance * kl_loss_prior
+        d_priors = dist(online_priors)
+        d_posts = dist(online_posts)
+        if self.kl_balance == 0.5:
+            kl_loss = D.kl.kl_divergence(d_posts, d_priors)
+        else:
+            kl_loss_postgrad = D.kl.kl_divergence(d_posts, dist(online_priors.detach())).mean()
+            kl_loss_priorgrad = D.kl.kl_divergence(dist(online_posts.detach()), d_priors).mean()
+            kl_loss = (1 - self.kl_balance) * kl_loss_postgrad + self.kl_balance * kl_loss_priorgrad
 
         # calculate metrics
-        entropy_prior = online_priors.entropy().mean()
-        entropy_posts = online_posts.entropy().mean()
+        embed_pred_correct = torch.argmax(embed_logits.detach(), dim=1) == labels
+        embed_pred_accuracy = torch.mean(embed_pred_correct.float())
+        entropy_prior = d_priors.entropy().mean()
+        entropy_posts = d_posts.entropy().mean()
 
-        return temporal_loss, kl_loss, entropy_posts, entropy_prior
+        return temporal_loss, kl_loss, embed_pred_accuracy, entropy_posts, entropy_prior,
 
     def byol_loss_fn(self, x, y):
         x = F.normalize(x, dim=-1, p=2)
@@ -364,8 +352,6 @@ class DroneMSTC(BaseUlAlgorithm):
             drone_state_proj=self.drone_state_proj.state_dict(),
             target_drone_state_proj=self.target_drone_state_proj.state_dict(),
             spatial_predictor=self.spatial_predictor.state_dict(),
-            image_embed_pred_head=self.image_embed_pred_head.state_dict(),
-            feature_pred_head=self.feature_pred_head.state_dict(),
             # spatial_temporal_predictor=self.spatial_temporal_predictor.state_dict(),
             rssm_model=self.rssm_model.state_dict(),
             optimizer=self.optimizer.state_dict(),
@@ -377,8 +363,6 @@ class DroneMSTC(BaseUlAlgorithm):
         self.drone_state_proj.load_state_dict(state_dict['drone_state_proj'])
         self.target_drone_state_proj.load_state_dict(state_dict['target_drone_state_proj'])
         self.spatial_predictor.load_state_dict(state_dict['spatial_predictor'])
-        self.feature_pred_head.load_state_dict(state_dict['feature_pred_head'])
-        self.image_embed_pred_head.load_state_dict(state_dict['image_embed_pred_head'])
         # self.spatial_temporal_predictor.load_state_dict(state_dict['spatial_temporal_predictor'])
         self.rssm_model.load_state_dict(state_dict['rssm_model'])
         self.optimizer.load_state_dict(state_dict["optimizer"])
@@ -389,8 +373,6 @@ class DroneMSTC(BaseUlAlgorithm):
         yield from self.drone_state_proj.parameters()
         yield from self.target_drone_state_proj.parameters()
         yield from self.spatial_predictor.parameters()
-        yield from self.image_embed_pred_head.parameters()
-        yield from self.feature_pred_head.parameters()
         # yield from self.spatial_temporal_predictor.parameters()
         yield from self.rssm_model.parameters()
 
@@ -401,8 +383,6 @@ class DroneMSTC(BaseUlAlgorithm):
         yield from self.drone_state_proj.named_parameters()
         yield from self.target_drone_state_proj.named_parameters()
         yield from self.spatial_predictor.named_parameters()
-        yield from self.image_embed_pred_head.named_parameters()
-        yield from self.feature_pred_head.named_parameters()
         # yield from self.spatial_temporal_predictor.named_parameters()
         yield from self.rssm_model.named_parameters()
 
@@ -412,10 +392,9 @@ class DroneMSTC(BaseUlAlgorithm):
         self.drone_state_proj.eval()
         self.target_drone_state_proj.eval()
         self.spatial_predictor.eval()
-        self.feature_pred_head.eval()
-        self.image_embed_pred_head.eval()
         # self.spatial_temporal_predictor.eval()
         self.rssm_model.eval()
+        self.embed_pred_head.eval()
 
     def train(self):
         self.encoder.train()
@@ -423,10 +402,9 @@ class DroneMSTC(BaseUlAlgorithm):
         self.drone_state_proj.train()
         self.target_drone_state_proj.train()
         self.spatial_predictor.train()
-        self.feature_pred_head.train()
-        self.image_embed_pred_head.train()
         # self.spatial_temporal_predictor.train()
         self.rssm_model.train()
+        self.embed_pred_head.train()
 
     def load_replay(self, pixel_control_buffer=None):
         logger.log('Loading replay buffer ...')

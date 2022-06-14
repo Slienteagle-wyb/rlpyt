@@ -7,7 +7,7 @@ from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ResEncoderModel
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 
 
@@ -31,6 +31,7 @@ class CPC(BaseUlAlgorithm):
             learning_rate=5e-4,
             rnn_size=256,
             latent_size=256,
+            num_stacked_input=1,
             validation_split=0.0,
             ReplayCls=OfflineUlReplayBuffer,
             EncoderCls=DmlabEncoderModel,
@@ -55,8 +56,10 @@ class CPC(BaseUlAlgorithm):
         self.image_shape = examples.observation.shape  # [c, h, w]
 
         self.encoder = self.EncoderCls(
-            image_shape=examples.observation.shape,
+            image_shape=self.image_shape,
             latent_size=self.latent_size,
+            hidden_sizes=self.hidden_sizes,
+            num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs
         )
         self.encoder.to(self.device)

@@ -45,7 +45,7 @@ class RSSMCell(nn.Module):
     def forward(self,
                 embed,
                 action,
-                in_state, ):
+                in_state):
         h_prev, z_prev = in_state
         B = action.shape[0]
 
@@ -127,6 +127,9 @@ class RSSMCore(nn.Module):
                              stoch_dim, stoch_discrete, latent_dim,
                              num_gru_layers, gru_type, layer_norm)
         self.warmup_T = warmup_T
+        self.deter_dim = deter_dim
+        self.stoch_dim = stoch_dim * (stoch_discrete or 1)
+        self.feat_dim = self.deter_dim + self.stoch_dim
 
     def forward(self, embeds, actions, in_state, forward_pred=False):
         T, B = embeds.shape[:2]
