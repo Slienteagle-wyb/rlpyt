@@ -2,7 +2,7 @@ import cv2
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, DmlabEncoderModel, Res18Encoder, FusResEncoderModel
+from rlpyt.ul.models.ul.encoders import ResEncoderModel, Res18Encoder, FusResEncoderModel
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -35,7 +35,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             state_latent_dim=64,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=FusResEncoderModel,
+            EncoderCls=ResEncoderModel,
             MlpCls=MlpModel,
             state_dict_filename=None,
             sched_kwargs=None,
@@ -83,6 +83,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
 
         self.policy = self.MlpCls(
             input_size=self.encoder.output_size + self.state_latent_dim,
+            # input_size=self.latent_size + self.state_latent_dim,
             hidden_sizes=self.mlp_hidden_layers,
             output_size=self.action_dim,
         )
@@ -92,9 +93,10 @@ class StateVelRegressBc(BaseUlAlgorithm):
                                            map_location=torch.device('cpu'))
             # the conv state dict was stored as encoder
             loaded_state_dict = loaded_state_dict.get('algo_state_dict', loaded_state_dict)
-            loaded_state_dict = loaded_state_dict.get('encoder', loaded_state_dict)
+            loaded_encoder_dict = loaded_state_dict.get('encoder', loaded_state_dict)
+
             # conv_state_dict = OrderedDict([(k, v) for k, v in loaded_state_dict.items() if k.startswith('conv.')])
-            self.encoder.load_state_dict(loaded_state_dict)
+            self.encoder.load_state_dict(loaded_encoder_dict)
             logger.log('conv encoder has loaded the pretrained model')
         else:
             logger.log('models has not loaded any pretrained model yet!')
@@ -153,10 +155,13 @@ class StateVelRegressBc(BaseUlAlgorithm):
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
         with torch.no_grad():
             conv_out = self.encoder.conv(obs.reshape(length*batch_size*f, c, h, w))
+            # spatial_embed, temporal_embed, _ = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
             # conv_out = conv_out.detach_()
         state_embedding = self.state_projector(attitude_states)
         policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
                                   state_embedding.reshape(length*batch_size, -1)), dim=-1)
+        # policy_input = torch.cat((temporal_embed.detach().reshape(length*batch_size*f, -1),
+        #                           state_embedding.reshape(length*batch_size, -1)), dim=-1)
         pred_vel = self.policy(policy_input)
         pred_loss = self.pred_loss_fn(pred_vel, vel_states.reshape(length*batch_size, -1))
         return pred_loss

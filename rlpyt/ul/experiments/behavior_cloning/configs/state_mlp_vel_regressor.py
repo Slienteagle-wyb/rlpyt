@@ -17,7 +17,7 @@ config = dict(
         validation_split=0.0,
         with_validation=True,
         # f'/home/yibo/Documents/rlpyt/data/local/20220423/221519/mst_pretrain/mst_0423_run1/params.pkl'
-        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220610/140223/mstc_pretrain/mstc_0610_run/run_0/params.pkl'
+        state_dict_filename=f'/home/yibo/Documents/rlpyt/data/local/20220615/233050/mstc_pretrain/mstc_0615_run/params.pkl'
     ),
     # encoder=dict(
     #     use_fourth_layer=True,

@@ -165,6 +165,23 @@ class RSSMCore(nn.Module):
 
         return posts, states_h, samples, features, priors
 
+    def forward_imagine(self, actions, init_states):
+        T, B = actions.shape[:2]
+        priors = []
+        states_h = []
+        samples = []
+        (h_prev, z_prev) = init_states
+        for i in range(T):
+            prior, (h_prev, z_prev) = self.cell.forward_pred(actions[i].squeeze(), (h_prev, z_prev))
+            priors.append(prior)
+            states_h.append(h_prev)
+            samples.append(z_prev)
+        priors = torch.stack(priors)
+        states_h = torch.stack(states_h)
+        samples = torch.stack(samples)
+        features = torch.cat((states_h, samples), dim=-1)
+        return states_h, samples, features, priors
+
     def init_state(self, batch_size):
         return self.cell.init_state(batch_size)
 
