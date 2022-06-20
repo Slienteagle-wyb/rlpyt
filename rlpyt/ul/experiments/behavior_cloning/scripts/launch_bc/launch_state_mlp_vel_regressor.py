@@ -17,7 +17,7 @@ default_config_key = "state_mlp_vel_regressor"
 variant_levles = list()
 
 keys = [('optim', 'lr'), ('runner', 'wandb_log_name'), ('algo', 'state_latent_dim')]
-values = [[5e-4, 'mst_0616_mix_res_rssm_dreamer_contrast_disc_temp', 256]]
+values = [[5e-4, 'mst_0619_mix_res_rssm_dreamer_contrast_disc_horizon3', 256]]
 dir_name = ['state_latent_dim_256_nostack']
 variant_levles.append(VariantLevel(keys, values, dir_name))
 

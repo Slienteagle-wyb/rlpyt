@@ -14,10 +14,10 @@ experiment_title = "mst_pretrain"
 variant_levels = list()
 
 # make a varent of runs
-keys = [('algo', 'spr_loss_coefficient'), ('algo', 'contrast_loss_coefficient'),
-        ('algo', 'inverse_dyna_loss_coefficient'), ('runner', 'wandb_log_name')]
-values = [[2.0, 1.0, 1.0, 'mst_0506_mix_spr2_res_blur_mdp_contrast'], ]
-dir_names = ['mst_0506_run1']
+keys = [('algo', 'spatial_coefficient'), ('algo', 'temporal_coefficient'),
+        ('runner', 'wandb_log_name')]
+values = [[1.0, 1.0, 'mst_0620_mix_dmnorm_drnn_byol'], ]
+dir_names = ['mst_0620_run1']
 variant_levels.append(VariantLevel(keys, values, dir_names))
 
 

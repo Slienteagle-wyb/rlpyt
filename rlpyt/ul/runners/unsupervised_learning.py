@@ -67,7 +67,7 @@ class UnsupervisedLearning(BaseRunner):
 
         self.pbar = ProgBarCounter(self.log_interval_updates)
         if self.wandb_log:
-            wandb.init(project='ul_representation_mstc', entity='slientea98', config=self.config_dict)
+            wandb.init(project='mstc_architecture_search', entity='slientea98', config=self.config_dict)
             wandb.run.name = self.wandb_log_name
 
     def shutdown(self):

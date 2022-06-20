@@ -129,6 +129,7 @@ class RSSMCore(nn.Module):
         self.warmup_T = warmup_T
         self.deter_dim = deter_dim
         self.stoch_dim = stoch_dim * (stoch_discrete or 1)
+        self.stoch_discrete = stoch_discrete
         self.feat_dim = self.deter_dim + self.stoch_dim
 
     def forward(self, embeds, actions, in_state, forward_pred=False):

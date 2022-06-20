@@ -2,28 +2,26 @@ import torch
 from collections import namedtuple
 import copy
 import wandb
-from rlpyt.utils.tensor import valid_mean
+import numpy as np
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.models.utils import update_state_dict
-from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, DmlabEncoderModelNorm, ResEncoderModel, FusResEncoderModel
+from rlpyt.utils.tensor import infer_leading_dims, restore_leading_dims
+from rlpyt.ul.models.ul.encoders import DmlabEncoderModelNorm, ResEncoderModel
 from rlpyt.ul.models.ul.atc_models import ByolMlpModel, DroneStateProj
 from rlpyt.ul.algos.utils.data_augs import get_augmentation, random_shift
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
-from rlpyt.ul.models.ul.inverse_models import InverseModelHead
-from rlpyt.ul.models.ul.forward_models import ForwardAggRnnModel, SkipConnectForwardAggModel
+from rlpyt.ul.models.ul.drnn import DRnnCore
 import torchvision.transforms as Trans
 import torch.nn.functional as F
 
 
 IGNORE_INDEX = -100  # Mask TC samples across episode boundary.
-OptInfo = namedtuple("OptInfo", ["mstLoss", "sprLoss", "contrastLoss", 'inverseDynaLoss',
-                                 "cpcAccuracy1", "cpcAccuracy2", "cpcAccuracyTm1", "cpcAccuracyTm2",
-                                 'inverse_pred_accuracy', 'cos_similarity', 'global_latents_std',
-                                 'contrast_accuracy', "gradNorm", 'current_lr'])
+OptInfo = namedtuple("OptInfo", ["mstLoss", "spatialLoss", "temporalLoss",
+                                 'cos_similarity', 'global_latents_std', "gradNorm", 'current_lr'])
 ValInfo = namedtuple("ValInfo", ["mstLoss", "accuracy", "convActivation"])
 
 
@@ -39,27 +37,31 @@ class DroneMST(BaseUlAlgorithm):
             batch_T=32,  # the default length of extracted batch
             batch_B=16,  # batch B is the sampled batch size for extraction
             warmup_T=0,
+            overshot_horizon=3,
+            num_stacked_input=1,  # stacked input num equal to 1 when no stack
             clip_grad_norm=10.,
             target_update_tau=0.01,  # 1 for hard update
             target_update_interval=1,
             latent_size=256,
             hidden_sizes=512,
-            num_stacked_input=3,  # stacked input num equal to 1 when no stack
+            deter_dim=1024,
+            attitude_dim=9,
+            vel_state_dim=4,
             random_shift_prob=1.,
             random_shift_pad=4,
             augmentations=('blur', 'intensity'),  # combined with intensity jit accord to SGI
-            spr_loss_coefficient=1.0,
-            contrast_loss_coefficient=1.0,
-            inverse_dyna_loss_coefficient=1.0,
+            spatial_coefficient=1.0,
+            temporal_coefficient=1.0,
             validation_split=0.0,
             n_validation_batches=0,
             ReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=ResEncoderModel,
+            EncoderCls=DmlabEncoderModelNorm,
             initial_state_dict=None,
             optim_kwargs=None,
             sched_kwargs=None,
             encoder_kwargs=None,
             replay_kwargs=None,
+            rssm_kwargs=None
     ):
         encoder_kwargs = dict() if encoder_kwargs is None else encoder_kwargs
         save__init__args(locals())
@@ -68,9 +70,9 @@ class DroneMST(BaseUlAlgorithm):
         self.batch_size = batch_B * batch_T  # for logging only
         self._replay_T = warmup_T + batch_T  # self.replay_T == self._replay_T is the len of every sampled trajectory
 
-
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
+        torch.backends.cudnn.benchmark = True
         examples = self.load_replay()
         self.itrs_per_epoch = self.replay_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
@@ -78,72 +80,51 @@ class DroneMST(BaseUlAlgorithm):
 
         trans_dim = self.replay_buffer.translation_dim
         rotate_dim = self.replay_buffer.rotation_dim
-        command_catgorical = self.replay_buffer.command_catgorical
         forward_input_size = rotate_dim + trans_dim  # no reward
-        inverse_pred_dim = command_catgorical
 
-        self.encoder = self.EncoderCls(
+        # resnet backbone
+        # self.encoder = self.EncoderCls(
+        #     image_shape=image_shape,
+        #     latent_size=self.latent_size,
+        #     hidden_sizes=self.hidden_sizes,
+        #     num_stacked_input=self.num_stacked_input,
+        #     **self.encoder_kwargs
+        # )
+        # dmlab_norm backbone
+        self.encoder = DmlabEncoderModelNorm(
             image_shape=image_shape,
             latent_size=self.latent_size,
-            hidden_sizes=self.hidden_sizes,
-            num_stacked_input=self.num_stacked_input,
-            **self.encoder_kwargs
+            hidden_sizes=self.hidden_sizes
         )
         self.target_encoder = copy.deepcopy(self.encoder)  # the target encoder is not tied with online encoder
 
-        self.online_predictor = ByolMlpModel(
+        self.spatial_predictor = ByolMlpModel(
             input_dim=self.latent_size,
             latent_size=self.latent_size,
             hidden_size=self.hidden_sizes
         )
 
-        self.drone_state_proj = DroneStateProj(
-            input_dim=self.attitude_dim + self.vel_state_dim,
-            latent_size=self.latent_size
-        )
-        self.target_drone_state_proj = copy.deepcopy(self.drone_state_proj)
-
-        # self.forward_agg_rnn = SkipConnectForwardAggModel(
-        #     input_size=int(self.latent_size + forward_input_size),
-        #     hidden_sizes=self.hidden_sizes,
-        #     latent_size=self.latent_size,
-        #     num_layers=1,
-        #     skip_connect=False,
-        # )
-
-        self.forward_agg_rnn = ForwardAggRnnModel(
-            input_size=int(self.latent_size + forward_input_size),
-            hidden_sizes=self.hidden_sizes,
-            latent_size=self.latent_size
+        self.temporal_predictor = ByolMlpModel(
+            input_dim=self.deter_dim,
+            latent_size=self.latent_size,
+            hidden_size=self.hidden_sizes
         )
 
-        # self.forward_pred_rnn = SkipConnectForwardAggModel(
-        #     input_size=int(forward_input_size),
-        #     hidden_sizes=self.hidden_sizes,
-        #     latent_size=self.latent_size
-        # )
-
-        self.inverse_pred_head = InverseModelHead(
-            input_dim=2 * self.latent_size,
-            hidden_size=self.hidden_sizes,
-            num_actions=inverse_pred_dim
+        self.drnn_model = DRnnCore(
+            latent_dim=self.latent_size,
+            embed_dim=self.latent_size,
+            action_dim=forward_input_size,
+            deter_dim=self.deter_dim,
+            device=self.device,
+            warmup_T=self.warmup_T,
+            **self.rssm_kwargs
         )
-
-        # linear transforms from one step prediction to T-1 forward steps
-        transforms = [None]
-        for _ in range(self.batch_T - 1):
-            transforms.append(
-                torch.nn.Linear(in_features=self.latent_size, out_features=self.latent_size, bias=False)
-            )
-        self.transforms = torch.nn.ModuleList(transforms)
 
         self.encoder.to(self.device)
         self.target_encoder.to(self.device)
-        self.online_predictor.to(self.device)
-        self.forward_agg_rnn.to(self.device)
-        # self.forward_pred_rnn.to(self.device)
-        self.inverse_pred_head.to(self.device)
-        self.transforms.to(self.device)
+        self.spatial_predictor.to(self.device)
+        self.temporal_predictor.to(self.device)
+        self.drnn_model.to(self.device)
 
         self.optim_initialize(epochs)
 
@@ -161,8 +142,10 @@ class DroneMST(BaseUlAlgorithm):
 
         self.optimizer.zero_grad()
         # calculate the loss func
-        loss, spr_loss, contrast_loss, inverse_dyna_loss,  pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std, contrast_accuracy = self.mst_loss(samples)
-        optimize_loss = spr_loss * self.spr_loss_coefficient + contrast_loss * self.contrast_loss_coefficient + inverse_dyna_loss * self.inverse_dyna_loss_coefficient
+        spatial_loss, temporal_loss, cos_sim, global_latents_std = self.mst_loss(samples)
+        loss = spatial_loss + temporal_loss
+
+        optimize_loss = self.spatial_coefficient * spatial_loss + self.temporal_coefficient * temporal_loss
         optimize_loss.backward()
         if self.clip_grad_norm is None:
             grad_norm = 0.
@@ -171,36 +154,27 @@ class DroneMST(BaseUlAlgorithm):
                 self.parameters(), self.clip_grad_norm)
         self.optimizer.step()
 
-        # log the optimize info/result
+        # log the optimization info/result
         opt_info.mstLoss.append(loss.item())
-        opt_info.sprLoss.append(spr_loss.item())
-        opt_info.inverseDynaLoss.append(inverse_dyna_loss.item())
-        opt_info.contrastLoss.append(contrast_loss.item())
-        opt_info.cpcAccuracy1.append(pred_accuracies[0].item())
-        opt_info.cpcAccuracy2.append(pred_accuracies[1].item())
-        opt_info.cpcAccuracyTm1.append(pred_accuracies[2].item())
-        opt_info.cpcAccuracyTm2.append(pred_accuracies[3].item())
-        opt_info.inverse_pred_accuracy.append(inverse_pred_accuracy.item())
-        opt_info.cos_similarity.append(cos_similarity.item())
+        opt_info.spatialLoss.append(spatial_loss.item())
+        opt_info.temporalLoss.append(temporal_loss.item())
+        opt_info.cos_similarity.append(cos_sim.item())
         opt_info.global_latents_std.append(global_latents_std.item())
-        opt_info.contrast_accuracy.append(contrast_accuracy.item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
 
         # the update interval for the momentum encoder
         if itr % self.target_update_interval == 0:
-            update_state_dict(self.target_encoder,
-                              self.encoder.state_dict(),
-                              self.target_update_tau)
+            update_state_dict(self.target_encoder, self.encoder.state_dict(), self.target_update_tau)
         return opt_info
 
     def mst_loss(self, samples):
         obs_one = samples.observations
-        length, b, f, c, h, w = obs_one.shape
-        obs_one = obs_one.view(length * b * f, c, h, w)
         if obs_one.dtype == torch.uint8:
             default_float_dtype = torch.get_default_dtype()
             obs_one = obs_one.to(dtype=default_float_dtype).div(255)
+        length, b, f, c, h, w = obs_one.shape
+        obs_one = obs_one.view(length, b * f, c, h, w)
         obs_two = copy.deepcopy(obs_one)
 
         if self.random_shift_prob > 0.:
@@ -215,188 +189,113 @@ class DroneMST(BaseUlAlgorithm):
                 prob=self.random_shift_prob,
             )
 
-        prev_translation = samples.prev_translations[::self.num_stacked_input]
-        prev_rotation = samples.prev_rotations[::self.num_stacked_input]
-        current_translation = samples.translations[::self.num_stacked_input]
-        current_rotation = samples.rotations[::self.num_stacked_input]
-        direction_label = samples.directions[::self.num_stacked_input]
+        cur_vel = samples.velocities
+        cur_attitude = samples.attitudes
+        cur_drone_state = torch.cat((cur_vel, cur_attitude), dim=-1)
+        prev_translation = samples.prev_translations
+        prev_rotation = samples.prev_rotations
         prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
-        current_action = torch.cat((current_translation, current_rotation), dim=-1)
-        obs_one, obs_two, prev_action, current_action, direction_label = buffer_to((obs_one, obs_two, prev_action,
-                                                                                    current_action, direction_label),
-                                                                                   device=self.device)
 
-        aug_trans = Trans.Compose(get_augmentation(self.augmentations, image_shape=(c, h, w)))
-        obs_one = aug_trans(obs_one).reshape(length, b*f, c, h, w)
-        obs_two = aug_trans(obs_two).reshape(length, b*f, c, h, w)
+        obs_one, obs_two, prev_action, cur_drone_state = buffer_to((obs_one, obs_two, prev_action, cur_drone_state),
+                                                                   device=self.device)
 
-        if self.num_stacked_input > 1:
-            assert length % self.num_stacked_input == 0
-            splited_obs_one_list = torch.split(obs_one, split_size_or_sections=self.num_stacked_input, dim=0)
-            splited_obs_two_list = torch.split(obs_two, split_size_or_sections=self.num_stacked_input, dim=0)
-            stacked_obs_one_list = []
-            stacked_obs_two_list = []
-            for splited_obs_one in splited_obs_one_list:
-                stacked_obs_one = torch.cat(torch.split(splited_obs_one, split_size_or_sections=1, dim=0), dim=2)
-                stacked_obs_one_list.append(stacked_obs_one.squeeze())
-            for splited_obs_two in splited_obs_two_list:
-                stacked_obs_two = torch.cat(torch.split(splited_obs_two, split_size_or_sections=1, dim=0), dim=2)
-                stacked_obs_two_list.append(stacked_obs_two.squeeze())
-            # shape of obs is (length//self.num_stacked_input, b*f, self.num_stacked_input*c, h, w)
-            obs_one = torch.stack(stacked_obs_one_list, dim=0)
-            obs_two = torch.stack(stacked_obs_two_list, dim=0)
-
-        # print(obs_one[0][0][0:3].permute(2, 0, 1).cpu().numpy().shape)
-        # cv2.imwrite('/home/comb/Downloads/fig_1.png', obs_one[0][0][0:3].permute(2, 1, 0).cpu().numpy())
-        # cv2.imwrite('/home/comb/Downloads/fig_2.png', obs_one[0][0][3:6].permute(2, 1, 0).cpu().numpy())
-        # cv2.imwrite('/home/comb/Downloads/fig_3.png', obs_one[0][0][6:9].permute(2, 1, 0).cpu().numpy())
-
-        length, b, c, h, w = obs_one.shape
-        assert c == 3 * self.num_stacked_input
+        lead_dim, batch_len, batch_size, shape = infer_leading_dims(obs_one, 3)
+        obs_one = obs_one.reshape(batch_len * batch_size, *shape)
+        obs_two = obs_two.reshape(batch_len * batch_size, *shape)
+        aug_trans = Trans.Compose(get_augmentation(self.augmentations, shape))
+        obs_one = aug_trans(obs_one).reshape(batch_len, batch_size, *shape)
+        obs_two = aug_trans(obs_two).reshape(batch_len, batch_size, *shape)
 
         with torch.no_grad():
-            obs_one_target_proj, _ = self.target_encoder(obs_one)
-            obs_two_target_proj, _ = self.target_encoder(obs_two)
+            target_proj_one, _ = self.target_encoder(obs_one)
+            target_proj_two, _ = self.target_encoder(obs_two)
+        online_proj_one, _ = self.encoder(obs_one)
+        online_proj_two, _ = self.encoder(obs_two)
 
-        obs_one_online_proj, _ = self.encoder(obs_one)
-        obs_two_online_proj, _ = self.encoder(obs_two)
+        # calculate the byol spatial loss
+        spatial_loss, cos_sim, global_latents_std = self.spatial_loss(online_proj_one, online_proj_two,
+                                                                      target_proj_one, target_proj_two)
+        # calculate the temporal loss
+        temporal_loss = self.temporal_loss(online_proj_one, target_proj_two, prev_action)
 
-        spr_loss, pred_accuracies = self.spr_loss(obs_one_online_proj, obs_two_target_proj, prev_action, current_action)
-        contrast_loss, cos_similarity, global_latents_std, contrast_accuracy = self.contrast_loss(obs_one_online_proj,
-                                                                                                  obs_two_target_proj,
-                                                                                                  obs_two_online_proj,
-                                                                                                  obs_one_target_proj)
-        inverse_dyna_loss, inverse_pred_accuracy,  = self.inverse_dyna_loss(obs_two_online_proj,
-                                                                            obs_one_target_proj,
-                                                                            direction_label,
-                                                                            prev_action)
+        return spatial_loss, temporal_loss, cos_sim, global_latents_std
 
-        loss = spr_loss + contrast_loss + inverse_dyna_loss
+    def temporal_loss(self, online_proj_one, target_proj_two, prev_actions):
+        T, B, latent_dim = online_proj_one.shape
+        init_state = self.drnn_model.init_state(B)
+        # calculate the close loop rollout
+        h_states = self.drnn_model.forward(online_proj_one, prev_actions, init_state, forward_pred=False)
+        # calculate the open loop rollout
+        if self.overshot_horizon > 0:
+            temporal_overshoot_loss = self.overshot_loss(prev_actions, target_proj_two,
+                                                         self.overshot_horizon, h_states)
+        else:
+            temporal_overshoot_loss = torch.zeros(1)
 
-        return loss, spr_loss, contrast_loss, inverse_dyna_loss, \
-            pred_accuracies, inverse_pred_accuracy, cos_similarity, global_latents_std, contrast_accuracy
+        temporal_loss = temporal_overshoot_loss
 
-    def spr_loss(self, obs_one_online_proj, obs_two_target_proj, prev_action, current_action):
-        # agg_input = torch.cat((obs_one_online_proj[:self.warmup_T], prev_action[:self.warmup_T]), dim=-1)
-        # _, hidden_states = self.forward_agg_rnn(agg_input)
-        # current_action = current_action[self.warmup_T:]
-        # pred_next_states, _ = self.forward_pred_rnn(current_action, init_hiddens=hidden_states[-1])
+        return temporal_loss
 
-        # test the forward pred without action
-        agg_input = torch.cat((obs_one_online_proj, prev_action), dim=-1)
-        # pred_next_states, _ = self.forward_agg_rnn(agg_input)
-        pred_next_states = self.forward_agg_rnn(agg_input)
-        pred_next_states = pred_next_states[self.warmup_T:]
+    def overshot_loss(self, prev_actions, target_proj, overshot_horizon, init_states):
+        start_idxs = np.arange(0, self.batch_T - overshot_horizon)
+        end_idxs = start_idxs + overshot_horizon
 
-        # pred_next_states [16, 16, 256]
-        z_positive = obs_two_target_proj.detach()[self.warmup_T:]
+        target_proj_list = []
+        sliced_actions = []
+        init_state_h = []
+        for start_idx, end_idx in zip(start_idxs, end_idxs):
+            init_state_h.append(init_states[start_idx])
+            sliced_actions.append(prev_actions[start_idx+1:end_idx+1])
+            target_proj_list.append(target_proj[start_idx+1:end_idx+1])
 
-        T, B, Z = z_positive.shape
-        target_trans = z_positive.view(-1, Z).transpose(1, 0)
-        base_labels = torch.arange(T * B, dtype=torch.long, device=self.device).view(T, B)
-        prediction_list = list()
-        label_list = list()
-        # from 1 forward step to T-1 forward step
-        for delta_t in range(1, T):
-            prediction_list.append(self.transforms[delta_t](pred_next_states[:-delta_t].view(-1, Z)))
-            label_list.append(base_labels[delta_t:].view(-1))
+        init_state_h = torch.cat(init_state_h, dim=0)
+        sliced_actions = torch.cat(sliced_actions, dim=1)
+        target_projs = torch.cat(target_proj_list, dim=1)
+        # open loop rollout for predictions
+        states_h = self.drnn_model.forward_imagine(sliced_actions, init_state_h)
 
-        forward_steps = [0] + [len(label) for label in label_list]
-        cumulative_forward_steps = torch.cumsum(torch.tensor(forward_steps), dim=0)
+        overshot_length, num_batch, hidden_dim = states_h.shape
+        assert overshot_length == overshot_horizon
+        # calculate byol overshot predictive loss
+        temporal_pred = self.temporal_predictor(states_h.view(overshot_length*num_batch, -1))
+        target_projs = target_projs.detach().reshape(overshot_length*num_batch, -1)
+        temporal_overshoot_loss = self.byol_loss_fn(temporal_pred, target_projs)
 
-        # total predictions pairs: P=T*(T-1)/2*B
-        prdictions = torch.cat(prediction_list)  # [P, z_dim]
-        labels = torch.cat(label_list)
-        logits = torch.matmul(prdictions, target_trans)  # [P, z_dim] * [z_dim, T*B]
-        logits = logits - torch.max(logits, dim=1, keepdim=True)[0]
-        spr_loss = self.c_e_loss(logits, labels)
+        return temporal_overshoot_loss.mean()
 
-        ################################################
-        # calculate the prediction metrix
-        logits_d = logits.detach()
-        # begin, end, step (downsample==sample from one step forward predictions every 4 steps):
-        b, e, s = cumulative_forward_steps[0], cumulative_forward_steps[1], 4  # delta_t = 1
-        logits1, labels1 = logits_d[b:e:s], labels[b:e:s]
-        correct1 = torch.argmax(logits1, dim=1) == labels1
-        accuracy1 = valid_mean(correct1.float(), valid=labels1 >= 0)  # IGNORE=-100
+    def spatial_loss(self, online_proj_one, online_proj_two,
+                     target_proj_one, target_proj_two):
+        T, B, latent_dim = online_proj_one.shape
 
-        b, e, s = cumulative_forward_steps[1], cumulative_forward_steps[2], 4  # delta_t = 2
-        logits2, labels2 = logits_d[b:e:s], labels[b:e:s]
-        correct2 = torch.argmax(logits2, dim=1) == labels2
-        accuracy2 = valid_mean(correct2.float(), valid=labels2 >= 0)
+        target_proj_one = target_proj_one.detach().view(-1, latent_dim)
+        target_proj_two = target_proj_two.detach().view(-1, latent_dim)  # [T*B, latent_dim]
 
-        b, e, s = cumulative_forward_steps[-2], cumulative_forward_steps[-1], 1  # delta_t = T - 1
-        logitsT1, labelsT1 = logits_d[b:e:s], labels[b:e:s]
-        correctT1 = torch.argmax(logitsT1, dim=1) == labelsT1
-        accuracyT1 = valid_mean(correctT1.float(), valid=labelsT1 >= 0)
+        spatial_pred_one = self.spatial_predictor(online_proj_one.view(-1, latent_dim))
+        spatial_pred_two = self.spatial_predictor(online_proj_two.view(-1, latent_dim))
 
-        b, e, s = cumulative_forward_steps[-3], cumulative_forward_steps[-2], 1  # delta_t = T - 2
-        logitsT2, labelsT2 = logits_d[b:e:s], labels[b:e:s]
-        correctT2 = torch.argmax(logitsT2, dim=1) == labelsT2
-        accuracyT2 = valid_mean(correctT2.float(), valid=labelsT2 >= 0)
-        accuracies = (accuracy1, accuracy2, accuracyT1, accuracyT2)
-        return spr_loss, accuracies
-
-    def contrast_loss(self, obs_one_online_proj, obs_two_target_proj,
-                      obs_two_online_proj, obs_one_target_proj):
-        T, B, latent_dim = obs_one_online_proj.shape
-
-        obs_one_target_proj = obs_one_target_proj.detach().view(-1, latent_dim)
-        obs_two_target_proj = obs_two_target_proj.detach().view(-1, latent_dim)  # [T*B, latent_dim]
-
-        pred_one = self.online_predictor(obs_one_online_proj.view(-1, latent_dim))
-        pred_two = self.online_predictor(obs_two_online_proj.view(-1, latent_dim))
-
-        # loss_one = self.byol_loss_fn(pred_one, obs_one_target_proj)
-        # loss_two = self.byol_loss_fn(pred_two, obs_two_target_proj)
-        # contrast_loss = loss_one + loss_two
-        labels = torch.arange(T * B, dtype=torch.long, device=self.device)
-        logits_one = torch.matmul(pred_one, obs_two_target_proj.transpose(1, 0))  # [T*B, T*B]
-        logits_two = torch.matmul(pred_two, obs_one_target_proj.transpose(1, 0))
-        logits_one = logits_one - torch.max(logits_one, dim=1, keepdim=True)[0]
-        logits_two = logits_two - torch.max(logits_two, dim=1, keepdim=True)[0]
-        contrast_loss_one = self.c_e_loss(logits_one, labels)
-        contrast_loss_two = self.c_e_loss(logits_two, labels)
-        contrast_loss = (contrast_loss_one + contrast_loss_two)
-        correct = torch.argmax(logits_one.detach(), dim=1) == labels
-        contrast_accuracy = torch.mean(correct.float())
-
-        global_latents = obs_one_online_proj.detach().view(-1, latent_dim)
-        global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
-        global_latents_std = global_latents.std(dim=0).mean()
-        cos_sim = torch.matmul(global_latents, global_latents.transpose(1, 0))  # get a matrix [T*B, T*B]
-        mask = 1 - torch.eye(T*B, device=self.device, dtype=torch.float)
-        cos_sim = cos_sim*mask  # mask the similarity of every self
-        offset = cos_sim.shape[-1] / (cos_sim.shape[-1] - 1)  # (T*B)/(T*B-1)
-        cos_sim = cos_sim.mean() * offset
-        return contrast_loss.mean(), cos_sim, global_latents_std, contrast_accuracy
-
-    def inverse_dyna_loss(self, obs_two_online_proj, obs_one_target_proj, direction_label, action):
-        rnn_input = torch.cat((obs_two_online_proj, action), dim=-1)
-        # agg_states, _ = self.forward_agg_rnn(rnn_input)
-        agg_states = self.forward_agg_rnn(rnn_input)
-
-        agg_states = agg_states[self.warmup_T:]
-        direction_label = direction_label[self.warmup_T:]
-        obs_one_target_proj = obs_one_target_proj[self.warmup_T:]
-
-        next_states = agg_states[1:]
-        current_states = obs_one_target_proj.detach()[:-1]
-        T, B, latent_dim = current_states.shape
-        x = torch.cat((next_states.reshape(T * B, latent_dim), current_states.reshape(T * B, latent_dim)), dim=-1)
-        logits = self.inverse_pred_head(x)
-        direction_label = direction_label[:-1]
-        labels = direction_label.reshape(T * B, -1).squeeze()
-        inverse_loss = self.c_e_loss(logits, labels.long())
-
-        correct = torch.argmax(logits.detach(), dim=1) == labels
-        inverse_pred_accuracy = torch.mean(correct.float())
-        return inverse_loss, inverse_pred_accuracy
+        loss_one = self.byol_loss_fn(spatial_pred_one, target_proj_two)
+        loss_two = self.byol_loss_fn(spatial_pred_two, target_proj_one)
+        spatial_loss = loss_one + loss_two
+        # calculate byol metric
+        cos_sim, global_latents_std = self.byol_metric(online_proj_one)
+        return spatial_loss.mean(), cos_sim, global_latents_std
 
     def byol_loss_fn(self, x, y):
         x = F.normalize(x, dim=-1, p=2)
         y = F.normalize(y, dim=-1, p=2)
         return 2 - 2 * (x * y).sum(dim=-1)
+
+    def byol_metric(self, proj_logits):
+        T, B, latent_dim = proj_logits.shape
+        global_latents = proj_logits.detach().view(-1, latent_dim)
+        global_latents = F.normalize(global_latents, p=2.0, dim=-1, eps=1e-3)
+        global_latents_std = global_latents.std(dim=0).mean()
+        cos_sim = torch.matmul(global_latents, global_latents.transpose(1, 0))  # get a matrix [T*B, T*B]
+        mask = 1 - torch.eye(T * B, device=self.device, dtype=torch.float)
+        cos_sim = cos_sim * mask  # mask the similarity of every self
+        offset = cos_sim.shape[-1] / (cos_sim.shape[-1] - 1)  # (T*B)/(T*B-1)
+        cos_sim = cos_sim.mean() * offset
+        return cos_sim, global_latents_std
 
     def validation(self, itr):
         pass
@@ -405,53 +304,47 @@ class DroneMST(BaseUlAlgorithm):
         return dict(
             encoder=self.encoder.state_dict(),
             target_encoder=self.target_encoder.state_dict(),
-            forward_agg_rnn=self.forward_agg_rnn.state_dict(),
-            # forward_pred_rnn=self.forward_pred_rnn.state_dict(),
-            inverse_pred_head=self.inverse_pred_head.state_dict(),
+            spatial_predictor=self.spatial_predictor.state_dict(),
+            temporal_predictor=self.temporal_predictor.state_dict(),
+            drnn_model=self.drnn_model.state_dict(),
             optimizer=self.optimizer.state_dict(),
         )
 
     def load_state_dict(self, state_dict):
         self.encoder.load_state_dict(state_dict["encoder"])
         self.target_encoder.load_state_dict(state_dict["target_encoder"])
-        self.online_predictor.load_state_dict(state_dict["online_predictor"])
-        self.forward_agg_rnn.load_state_dict(state_dict['forward_agg_rnn'])
-        # self.forward_pred_rnn.load_state_dict(state_dict['forward_pred_rnn'])
-        self.inverse_pred_head.load_state_dict(state_dict['inverse_pred_head'])
+        self.spatial_predictor.load_state_dict(state_dict['spatial_predictor'])
+        self.temporal_predictor.load_state_dict(state_dict['temporal_predictor'])
         self.optimizer.load_state_dict(state_dict["optimizer"])
 
     def parameters(self):
         yield from self.encoder.parameters()
-        yield from self.forward_agg_rnn.parameters()
-        # yield from self.forward_pred_rnn.parameters()
-        yield from self.online_predictor.parameters()
-        yield from self.inverse_pred_head.parameters()
-        yield from self.transforms.parameters()
+        yield from self.target_encoder.parameters()
+        yield from self.temporal_predictor.parameters()
+        yield from self.spatial_predictor.parameters()
+        yield from self.drnn_model.parameters()
 
     def named_parameters(self):
         """To allow filtering by name in weight decay."""
         yield from self.encoder.named_parameters()
-        yield from self.online_predictor.named_parameters()
-        yield from self.forward_agg_rnn.named_parameters()
-        # yield from self.forward_pred_rnn.named_parameters()
-        yield from self.inverse_pred_head.named_parameters()
-        yield from self.transforms.named_parameters()
+        yield from self.target_encoder.named_parameters()
+        yield from self.temporal_predictor.named_parameters()
+        yield from self.spatial_predictor.named_parameters()
+        yield from self.drnn_model.named_parameters()
 
     def eval(self):
         self.encoder.eval()  # in case of batch norm
-        self.online_predictor.eval()
-        self.forward_agg_rnn.eval()
-        # self.forward_pred_rnn.eval()
-        self.inverse_pred_head.eval()
-        self.transforms.eval()
+        self.target_encoder.eval()
+        self.spatial_predictor.eval()
+        self.temporal_predictor.eval()
+        self.drnn_model.eval()
 
     def train(self):
         self.encoder.train()
-        self.online_predictor.train()
-        self.forward_agg_rnn.train()
-        # self.forward_pred_rnn.train()
-        self.inverse_pred_head.train()
-        self.transforms.train()
+        self.target_encoder.train()
+        self.spatial_predictor.train()
+        self.temporal_predictor.train()
+        self.drnn_model.train()
 
     def load_replay(self, pixel_control_buffer=None):
         logger.log('Loading replay buffer ...')
@@ -462,3 +355,4 @@ class DroneMST(BaseUlAlgorithm):
 
     def wandb_log_code(self):
         wandb.save('./rlpyt/ul/algos/ul_for_rl/mst.py')
+        wandb.save('./rlpyt/ul/models/ul/drnn.py')
