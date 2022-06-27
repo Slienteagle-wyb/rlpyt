@@ -157,14 +157,14 @@ class RSSMCore(nn.Module):
             states_h.append(h_prev)  # h_full for not forward pred else h_partial
             samples.append(z_prev)  # z_repre for not forward pred else z_pred
 
-        posts = torch.stack(posts)
+        # posts = torch.stack(posts)
         states_h = torch.stack(states_h)
-        priors = self.cell.batch_prior(states_h)
+        # priors = self.cell.batch_prior(states_h)
         samples = torch.stack(samples)
         features = torch.cat((states_h, samples), -1)
         # states = (states_h, samples)
-
-        return posts, states_h, samples, features, priors
+        return features, states_h, samples
+        # return posts, states_h, samples, features, priors
 
     def forward_imagine(self, actions, init_states):
         T, B = actions.shape[:2]
@@ -177,11 +177,12 @@ class RSSMCore(nn.Module):
             priors.append(prior)
             states_h.append(h_prev)
             samples.append(z_prev)
-        priors = torch.stack(priors)
+        # priors = torch.stack(priors)
         states_h = torch.stack(states_h)
         samples = torch.stack(samples)
         features = torch.cat((states_h, samples), dim=-1)
-        return states_h, samples, features, priors
+        # return states_h, samples, features, priors
+        return features
 
     def init_state(self, batch_size):
         return self.cell.init_state(batch_size)

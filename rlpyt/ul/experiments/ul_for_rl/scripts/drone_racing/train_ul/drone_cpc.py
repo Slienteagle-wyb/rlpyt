@@ -26,6 +26,7 @@ def build_and_train(
         encoder_kwargs=config['encoder'],
         replay_kwargs=config['replay'],
         sched_kwargs=config['sched'],
+        rssm_kwargs=config['rssm'],
         **config['algo']
     )
     runner = UnsupervisedLearning(
@@ -35,7 +36,7 @@ def build_and_train(
         **config["runner"]
     )
     name = config["name"]
-    with logger_context(log_dir, run_ID, name, config, snapshot_mode="all"):
+    with logger_context(log_dir, run_ID, name, config, snapshot_mode="last+gap"):
         runner.train()
 
 

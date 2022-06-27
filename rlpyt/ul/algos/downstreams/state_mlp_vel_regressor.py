@@ -1,8 +1,9 @@
 import cv2
+import numpy as np
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import ResEncoderModel, Res18Encoder, FusResEncoderModel
+from rlpyt.ul.models.ul.encoders import ResEncoderModel, Res18Encoder, FusResEncoderModel, DmlabEncoderModelNorm
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -10,9 +11,11 @@ from rlpyt.models.mlp import MlpModel
 from rlpyt.ul.algos.ul_for_rl.base import BaseUlAlgorithm
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
+from rlpyt.ul.algos.utils.dataset_utils import *
 
-OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm", 'current_lr'])
-ValInfo = namedtuple("ValInfo", ["ValPredLoss"])
+OptInfo = namedtuple("OptInfo", ["predLoss", "gradNorm", 'current_lr',
+                                 'train_errorVx', 'train_errorVy', 'train_errorVz', 'train_errorVyaw'])
+ValInfo = namedtuple("ValInfo", ["ValPredLoss", 'val_errorVx', 'val_errorVy', 'val_errorVz', 'val_errorVyaw'])
 
 
 class StateVelRegressBc(BaseUlAlgorithm):
@@ -66,7 +69,8 @@ class StateVelRegressBc(BaseUlAlgorithm):
         )
         # self.encoder = self.EncoderCls(
         #     image_shape=self.img_shape,
-        #     latent_size=self.latent_size
+        #     latent_size=self.latent_size,
+        #     hidden_sizes=self.hidden_sizes
         # )
         # used as a byol style projector
         # self.state_projector = ByolMlpModel(
@@ -114,7 +118,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
             self.lr_scheduler.step(current_epoch)
         current_lr = self.lr_scheduler.get_epoch_values(current_epoch)[0]
         self.optimizer.zero_grad()
-        pred_loss = self.pred_loss(samples)
+        pred_loss, vel_errors = self.pred_loss(samples)
         pred_loss.backward()
         if self.clip_grad_norm is None:
             grad_norm = 0.
@@ -125,7 +129,10 @@ class StateVelRegressBc(BaseUlAlgorithm):
         opt_info.predLoss.append(pred_loss.item())
         opt_info.gradNorm.append(grad_norm.item())
         opt_info.current_lr.append(current_lr)
-
+        opt_info.train_errorVx.append(vel_errors[0])
+        opt_info.train_errorVy.append(vel_errors[1])
+        opt_info.train_errorVz.append(vel_errors[2])
+        opt_info.train_errorVyaw.append(vel_errors[3])
         return opt_info
 
     def pred_loss(self, samples):
@@ -153,18 +160,26 @@ class StateVelRegressBc(BaseUlAlgorithm):
         attitude_states = samples.attitudes[::self.num_stacked_input]
 
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
+        # feat, conv_out = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
         with torch.no_grad():
-            conv_out = self.encoder.conv(obs.reshape(length*batch_size*f, c, h, w))
-            # spatial_embed, temporal_embed, _ = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
-            # conv_out = conv_out.detach_()
+            feat, conv_out = self.encoder(obs.reshape(length * batch_size * f, c, h, w))
+        #     # spatial_embed, temporal_embed, _ = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
+        #     # conv_out = conv_out.detach_()
         state_embedding = self.state_projector(attitude_states)
+        # policy_input = torch.cat((conv_out.reshape(length * batch_size * f, -1),
+        #                           state_embedding.reshape(length * batch_size, -1)), dim=-1)
         policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
                                   state_embedding.reshape(length*batch_size, -1)), dim=-1)
         # policy_input = torch.cat((temporal_embed.detach().reshape(length*batch_size*f, -1),
         #                           state_embedding.reshape(length*batch_size, -1)), dim=-1)
         pred_vel = self.policy(policy_input)
         pred_loss = self.pred_loss_fn(pred_vel, vel_states.reshape(length*batch_size, -1))
-        return pred_loss
+        # calculate validation metrics
+        gt_vels = de_normalize_v(vel_states.reshape(length*batch_size, -1).detach().cpu().numpy())
+        pred_vels = de_normalize_v(pred_vel.detach().cpu().numpy())
+        vel_errors = np.absolute(pred_vels - gt_vels).mean(axis=0)
+
+        return pred_loss, vel_errors
 
     def validation(self, itr):
         logger.log('computing validation loss .....')
@@ -173,8 +188,12 @@ class StateVelRegressBc(BaseUlAlgorithm):
         for _ in range(self.itrs_per_epoch):
             samples = self.val_buffer.sample_batch(self.batch_B)
             with torch.no_grad():
-                pred_loss = self.pred_loss(samples)
+                pred_loss, vel_errors = self.pred_loss(samples)
             val_info.ValPredLoss.append(pred_loss.item())
+            val_info.val_errorVx.append(vel_errors[0])
+            val_info.val_errorVy.append(vel_errors[1])
+            val_info.val_errorVz.append(vel_errors[2])
+            val_info.val_errorVyaw.append(vel_errors[3])
         self.optimizer.zero_grad()
         logger.log('.. validation loss completed')
         return val_info

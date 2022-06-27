@@ -36,7 +36,7 @@ def build_and_train(
         **config["runner"]
     )
     name = config["name"]
-    with logger_context(log_dir, run_ID, name, config, snapshot_mode="all"):
+    with logger_context(log_dir, run_ID, name, config, snapshot_mode="last+gap"):
         runner.train()
 
 

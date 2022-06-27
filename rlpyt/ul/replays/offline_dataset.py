@@ -88,7 +88,7 @@ class OfflineDatasets(Dataset):
     # for imitation learning
     def extract_img(self):
         runs = glob.glob(str(self.data_path) + '/run*')
-        assert self.B == len(runs)
+        # assert self.B == len(runs)
         runs.sort()
         for run_idx in tqdm(range(self.B)):
             run = runs[run_idx]

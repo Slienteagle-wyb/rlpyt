@@ -9,7 +9,7 @@ from rlpyt.utils.buffer import buffer_to
 from rlpyt.algos.utils import valid_from_done
 # from rlpyt.utils.tensor import to_onehot
 from rlpyt.models.utils import update_state_dict
-from rlpyt.ul.models.ul.encoders import EncoderModel
+from rlpyt.ul.models.ul.encoders import EncoderModel, ResEncoderModel
 from rlpyt.ul.models.ul.atc_models import ContrastModel
 from rlpyt.ul.algos.utils.data_augs import random_shift
 
@@ -28,7 +28,6 @@ class AugmentedTemporalContrast(BaseUlAlgorithm):
 
     def __init__(
             self,
-            replay_filepath,
             ReplayCls=UlForRlReplayBuffer,
             delta_T=1,  # delta_T is the k-step forward
             batch_T=1,  # batch_T is the default len of T_axis

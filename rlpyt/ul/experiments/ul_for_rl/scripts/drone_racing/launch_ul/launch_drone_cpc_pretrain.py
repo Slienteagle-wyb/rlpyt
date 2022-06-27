@@ -17,7 +17,7 @@ variant_levels = list()
 
 # make a varent of runs
 keys = [('algo', 'batch_T'), ('algo', 'warmup_T'), ('runner', 'wandb_log_name')]
-values = [[32, 16, 'cpc_0507_mix_valina'], ]
+values = [[32, 16, 'cpc_0627_mix_res_drnn'], ]
 dir_names = ['cpc_0507_run1']
 variant_levels.append(VariantLevel(keys, values, dir_names))
 

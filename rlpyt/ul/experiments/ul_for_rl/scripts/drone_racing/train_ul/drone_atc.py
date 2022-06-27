@@ -26,15 +26,17 @@ def build_and_train(
         optim_kwargs=config['optim'],
         encoder_kwargs=config['encoder'],
         replay_kwargs=config['replay'],
+        sched_kwargs=config['sched'],
         **config['algo']
     )
     runner = UnsupervisedLearning(
         algo=algo,
         affinity=affinity,
+        config_dict=config,
         **config["runner"]
     )
     name = config["name"]
-    with logger_context(log_dir, run_ID, name, config, snapshot_mode="all"):
+    with logger_context(log_dir, run_ID, name, config, snapshot_mode="last+gap"):
         runner.train()
 
 

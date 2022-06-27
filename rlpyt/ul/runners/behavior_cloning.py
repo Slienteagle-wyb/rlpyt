@@ -62,12 +62,13 @@ class BehaviorCloning(BaseRunner):
         self._opt_infos = {k: list() for k in self.algo.opt_info_fields}
         self._start_time = self._last_time = time.time()
         self._cum_time = 0.
+        self.log_interval_updates = self.algo.itrs_per_epoch
         if self.snapshot_gap_intervals is not None:
             logger.set_snapshot_gap(self.snapshot_gap_intervals * self.log_interval_updates)
         self.pbar = ProgBarCounter(self.log_interval_updates)
 
         if self.wandb_log:
-            wandb.init(project='ul_representation_probing', entity='slientea98', config=self.config_dict)
+            wandb.init(project='mstc_probing', entity='slientea98', config=self.config_dict)
             wandb.run.name = self.wandb_log_name
 
     def shutdown(self):
@@ -128,7 +129,7 @@ class BehaviorCloning(BaseRunner):
             with logger.prefix(f"itr #{itr} "):
                 opt_info = self.algo.optimize(itr)  # perform one update/iter(sample a batch data and optimize)
                 self.store_diagnostics(itr, opt_info)
-                if (itr + 1) % self.log_interval_updates == 0:  # log the opti info every log interval iter and save the models state_dict
+                if (itr+1) % self.log_interval_updates == 0:  # log the opti info every log interval iter and save the models state_dict
                     self.algo.eval()
                     val_info = self.algo.validation(itr)
                     self.log_diagnostics(itr, val_info)

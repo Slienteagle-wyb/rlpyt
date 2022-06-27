@@ -55,7 +55,7 @@ class DroneMST(BaseUlAlgorithm):
             validation_split=0.0,
             n_validation_batches=0,
             ReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModelNorm,
+            EncoderCls=ResEncoderModel,
             initial_state_dict=None,
             optim_kwargs=None,
             sched_kwargs=None,
@@ -73,9 +73,11 @@ class DroneMST(BaseUlAlgorithm):
     def initialize(self, epochs, cuda_idx=None):
         self.device = torch.device("cpu") if cuda_idx is None else torch.device("cuda", index=cuda_idx)
         torch.backends.cudnn.benchmark = True
+        # torch.autograd.set_detect_anomaly(True)
         examples = self.load_replay()
         self.itrs_per_epoch = self.replay_buffer.size // self.batch_size
         self.n_updates = epochs * self.itrs_per_epoch
+        print('total number of itrs is:', self.n_updates)
         self.image_shape = image_shape = examples.observation.shape  # [c, h, w]
 
         trans_dim = self.replay_buffer.translation_dim
@@ -83,19 +85,19 @@ class DroneMST(BaseUlAlgorithm):
         forward_input_size = rotate_dim + trans_dim  # no reward
 
         # resnet backbone
-        # self.encoder = self.EncoderCls(
-        #     image_shape=image_shape,
-        #     latent_size=self.latent_size,
-        #     hidden_sizes=self.hidden_sizes,
-        #     num_stacked_input=self.num_stacked_input,
-        #     **self.encoder_kwargs
-        # )
-        # dmlab_norm backbone
-        self.encoder = DmlabEncoderModelNorm(
+        self.encoder = self.EncoderCls(
             image_shape=image_shape,
             latent_size=self.latent_size,
-            hidden_sizes=self.hidden_sizes
+            hidden_sizes=self.hidden_sizes,
+            num_stacked_input=self.num_stacked_input,
+            **self.encoder_kwargs
         )
+        # dmlab_norm backbone
+        # self.encoder = DmlabEncoderModelNorm(
+        #     image_shape=image_shape,
+        #     latent_size=self.latent_size,
+        #     hidden_sizes=self.hidden_sizes
+        # )
         self.target_encoder = copy.deepcopy(self.encoder)  # the target encoder is not tied with online encoder
 
         self.spatial_predictor = ByolMlpModel(
@@ -109,6 +111,8 @@ class DroneMST(BaseUlAlgorithm):
             latent_size=self.latent_size,
             hidden_size=self.hidden_sizes
         )
+        # self.temporal_predictor = torch.nn.Linear(in_features=self.deter_dim,
+        #                                           out_features=self.latent_size)
 
         self.drnn_model = DRnnCore(
             latent_dim=self.latent_size,
@@ -158,6 +162,7 @@ class DroneMST(BaseUlAlgorithm):
         opt_info.mstLoss.append(loss.item())
         opt_info.spatialLoss.append(spatial_loss.item())
         opt_info.temporalLoss.append(temporal_loss.item())
+        # opt_info.predAccuracy.append(pred_accuracy.item())
         opt_info.cos_similarity.append(cos_sim.item())
         opt_info.global_latents_std.append(global_latents_std.item())
         opt_info.gradNorm.append(grad_norm.item())
@@ -216,21 +221,28 @@ class DroneMST(BaseUlAlgorithm):
         spatial_loss, cos_sim, global_latents_std = self.spatial_loss(online_proj_one, online_proj_two,
                                                                       target_proj_one, target_proj_two)
         # calculate the temporal loss
-        temporal_loss = self.temporal_loss(online_proj_one, target_proj_two, prev_action)
+        temporal_loss = self.temporal_loss(online_proj_one, target_proj_two,
+                                           online_proj_two, target_proj_one, prev_action)
 
         return spatial_loss, temporal_loss, cos_sim, global_latents_std
 
-    def temporal_loss(self, online_proj_one, target_proj_two, prev_actions):
+    def temporal_loss(self, online_proj_one, target_proj_two,
+                      online_proj_two, target_proj_one, prev_actions):
         T, B, latent_dim = online_proj_one.shape
         init_state = self.drnn_model.init_state(B)
         # calculate the close loop rollout
-        h_states = self.drnn_model.forward(online_proj_one, prev_actions, init_state, forward_pred=False)
+        h_states_one = self.drnn_model.forward(online_proj_one, prev_actions, init_state, forward_pred=False)
+        h_states_two = self.drnn_model.forward(online_proj_two, prev_actions, init_state, forward_pred=False)
         # calculate the open loop rollout
         if self.overshot_horizon > 0:
-            temporal_overshoot_loss = self.overshot_loss(prev_actions, target_proj_two,
-                                                         self.overshot_horizon, h_states)
+            temporal_overshoot_loss_one = self.overshot_loss(prev_actions, target_proj_two,
+                                                             self.overshot_horizon, h_states_one)
+            temporal_overshoot_loss_two = self.overshot_loss(prev_actions, target_proj_one,
+                                                             self.overshot_horizon, h_states_two)
+            temporal_overshoot_loss = temporal_overshoot_loss_one + temporal_overshoot_loss_two
         else:
             temporal_overshoot_loss = torch.zeros(1)
+            pred_accuracy = None
 
         temporal_loss = temporal_overshoot_loss
 
@@ -239,14 +251,17 @@ class DroneMST(BaseUlAlgorithm):
     def overshot_loss(self, prev_actions, target_proj, overshot_horizon, init_states):
         start_idxs = np.arange(0, self.batch_T - overshot_horizon)
         end_idxs = start_idxs + overshot_horizon
-
+        base_labels = torch.arange(self.batch_T*self.batch_B, dtype=torch.long, device=self.device).view(self.batch_T,
+                                                                                                         self.batch_B)
         target_proj_list = []
         sliced_actions = []
         init_state_h = []
+        label_lists = []
         for start_idx, end_idx in zip(start_idxs, end_idxs):
             init_state_h.append(init_states[start_idx])
             sliced_actions.append(prev_actions[start_idx+1:end_idx+1])
             target_proj_list.append(target_proj[start_idx+1:end_idx+1])
+            label_lists.append(base_labels[start_idx+1:end_idx+1].view(-1))
 
         init_state_h = torch.cat(init_state_h, dim=0)
         sliced_actions = torch.cat(sliced_actions, dim=1)
@@ -259,9 +274,18 @@ class DroneMST(BaseUlAlgorithm):
         # calculate byol overshot predictive loss
         temporal_pred = self.temporal_predictor(states_h.view(overshot_length*num_batch, -1))
         target_projs = target_projs.detach().reshape(overshot_length*num_batch, -1)
-        temporal_overshoot_loss = self.byol_loss_fn(temporal_pred, target_projs)
+        temporal_overshot_loss = self.byol_loss_fn(temporal_pred, target_projs)
 
-        return temporal_overshoot_loss.mean()
+        # # calculate contrastive loss
+        # temporal_pred = self.temporal_predictor(states_h.view(overshot_length*num_batch, -1))
+        # target_projs = target_projs.detach().reshape(overshot_length*num_batch, -1)
+        # pred_logits = torch.matmul(temporal_pred, target_projs.transpose(1, 0))
+        # pred_logits = pred_logits - torch.max(pred_logits, dim=-1, keepdim=True)[0]
+        # labels = torch.cat(label_lists)
+        # temporal_overshot_loss = self.c_e_loss(pred_logits, labels)
+        # pred_accuracy = self.contrastive_metric(pred_logits, labels)
+
+        return temporal_overshot_loss.mean()
 
     def spatial_loss(self, online_proj_one, online_proj_two,
                      target_proj_one, target_proj_two):
@@ -281,8 +305,8 @@ class DroneMST(BaseUlAlgorithm):
         return spatial_loss.mean(), cos_sim, global_latents_std
 
     def byol_loss_fn(self, x, y):
-        x = F.normalize(x, dim=-1, p=2)
-        y = F.normalize(y, dim=-1, p=2)
+        x = F.normalize(x, dim=-1, p=2, eps=1e-3)
+        y = F.normalize(y, dim=-1, p=2, eps=1e-3)
         return 2 - 2 * (x * y).sum(dim=-1)
 
     def byol_metric(self, proj_logits):
@@ -296,6 +320,11 @@ class DroneMST(BaseUlAlgorithm):
         offset = cos_sim.shape[-1] / (cos_sim.shape[-1] - 1)  # (T*B)/(T*B-1)
         cos_sim = cos_sim.mean() * offset
         return cos_sim, global_latents_std
+
+    def contrastive_metric(self, pred_logits, labels):
+        pred_correct = torch.argmax(pred_logits.detach(), dim=1) == labels
+        overshot_pred_accuracy = torch.mean(pred_correct.float())
+        return overshot_pred_accuracy
 
     def validation(self, itr):
         pass

@@ -196,7 +196,6 @@ class DmlabEncoderModelNorm(torch.nn.Module):
         )
         self._output_size = self.conv.output_size(h, w)
         self._output_shape = self.conv.output_shape(h, w)
-
         self.head = ByolMlpModel(
             input_dim=self._output_size,
             latent_size=latent_size,
@@ -252,7 +251,7 @@ class ResEncoderModel(torch.nn.Module):
         self._output_shape = self.conv.output_shape(h, w)
 
         self.head = ByolMlpModel(
-            input_dim=self._output_size,
+            input_dim=res_depths[-1],
             latent_size=latent_size,
             hidden_size=hidden_sizes
         )
@@ -265,6 +264,7 @@ class ResEncoderModel(torch.nn.Module):
         else:
             img = observation
         conv = self.conv(img.reshape(T * B, *img_shape))
+        conv = conv.mean(dim=(2, 3))
         c = self.head(conv.reshape(T * B, -1))
 
         c, conv = restore_leading_dims((c, conv), lead_dim, T, B)
@@ -417,4 +417,5 @@ if __name__ == '__main__':
     # feature_extractor = create_feature_extractor(model, return_nodes=features)
     # out = feature_extractor(img)
     # print(out['out'].shape)
+    # test
 

@@ -118,6 +118,7 @@ class ResnetCNN(torch.nn.Module):
         self.layers = []
         self.norm_type = norm_type
         self.num_layers = self.blocks_per_group*len(depths)
+        self.avgpool = torch.nn.AvgPool2d
         # make grop consist of blocks
         for i in range(len(depths)):
             self.layers.append(self._make_layer(self.depths[i],

@@ -8,6 +8,7 @@ from rlpyt.utils.logging import logger
 from rlpyt.ul.replays.offline_ul_replay import OfflineUlReplayBuffer
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.ul.models.ul.encoders import DmlabEncoderModel, ResEncoderModel
+from rlpyt.ul.models.ul.drnn import DRnnCore
 from rlpyt.ul.replays.offline_dataset import OfflineDatasets
 
 
@@ -24,22 +25,24 @@ class CPC(BaseUlAlgorithm):
 
     def __init__(
             self,
-            batch_B,
-            batch_T,
+            batch_B=16,
+            batch_T=32,
             warmup_T=0,
-            clip_grad_norm=1000.,
+            clip_grad_norm=10.,
             learning_rate=5e-4,
-            rnn_size=256,
             latent_size=256,
+            hidden_sizes=512,
+            deter_dim=1024,
             num_stacked_input=1,
             validation_split=0.0,
             ReplayCls=OfflineUlReplayBuffer,
-            EncoderCls=DmlabEncoderModel,
+            EncoderCls=ResEncoderModel,
             initial_state_dict=None,
             sched_kwargs=None,
             encoder_kwargs=None,
             optim_kwargs=None,
             replay_kwargs=None,
+            rssm_kwargs=None,
             ):
         encoder_kwargs = dict() if encoder_kwargs is None else encoder_kwargs
         save__init__args(locals())
@@ -62,25 +65,31 @@ class CPC(BaseUlAlgorithm):
             num_stacked_input=self.num_stacked_input,
             **self.encoder_kwargs
         )
-        self.encoder.to(self.device)
 
         assert len(self.replay_buffer.samples.translation.shape) == 3  # [T,B,A]
         trans_dim = self.replay_buffer.translation_dim
         rotate_dim = self.replay_buffer.rotation_dim
-        ar_input_size = rotate_dim + trans_dim  # no reward
+        forward_input_size = rotate_dim + trans_dim  # no reward
 
-        self.prediction_rnn = torch.nn.LSTM(
-            input_size=int(self.latent_size + ar_input_size),
-            hidden_size=self.rnn_size,
+        self.drnn_model = DRnnCore(
+            latent_dim=self.latent_size,
+            embed_dim=self.latent_size,
+            action_dim=forward_input_size,
+            deter_dim=self.deter_dim,
+            device=self.device,
+            warmup_T=self.warmup_T,
+            **self.rssm_kwargs
         )
-        self.prediction_rnn.to(self.device)
 
         transforms = [None]
         for _ in range(self.batch_T - 1):
             transforms.append(
-                torch.nn.Linear(in_features=self.rnn_size, out_features=self.latent_size)
+                torch.nn.Linear(in_features=self.deter_dim, out_features=self.latent_size)
             )
         self.transforms = torch.nn.ModuleList(transforms)
+
+        self.encoder.to(self.device)
+        self.drnn_model.to(self.device)
         self.transforms.to(self.device)
 
         self.optim_initialize(epochs)
@@ -118,28 +127,30 @@ class CPC(BaseUlAlgorithm):
         return opt_info
 
     def cpc_loss(self, samples):
-        observation = samples.observations  # shape of observation [batch_T, batch_B, frame_stack, 3, 84, 84]
+        observation = samples.observations
+        if observation.dtype == torch.uint8:
+            default_float_dtype = torch.get_default_dtype()
+            observation = observation.to(dtype=default_float_dtype).div(255)
         length, b, f, c, h, w = observation.shape
         observation = observation.view(length, b*f, c, h, w)
         prev_translation = samples.prev_translations
         prev_rotation = samples.prev_rotations
-        action = torch.cat((prev_translation, prev_rotation), dim=-1)
-        observation, action = buffer_to((observation, action), device=self.device)
+        prev_action = torch.cat((prev_translation, prev_rotation), dim=-1)
+        observation, prev_action = buffer_to((observation, prev_action), device=self.device)
         # encoder all the observation into latent space and the latent variable is passed by a nolinear projector
-        z_latent, conv_output = self.encoder(observation)  # [T,B,z_dim]
-        rnn_input = torch.cat([z_latent, action], dim=-1)  # [T,B,z_dim+act_dim]
+        _, conv_output = self.encoder(observation)  # [T,B,z_dim]
 
-        context, _ = self.prediction_rnn(rnn_input)
+        init_state = self.drnn_model.init_state(b)
+        context = self.drnn_model.forward(conv_output, prev_action, init_state, forward_pred=False)
 
         # Extract only the ones to train (all were needed to compute).
-        z_latent = z_latent[self.warmup_T:]  # warmup for lstm
         conv_output = conv_output[self.warmup_T:]
         context = context[self.warmup_T:]
         ###############################
         # Contrast the network outputs:
         # Should have T,B,C=context.shape, T,B=valid.shape, T,B,Z=z_latent.shape
-        T, B, Z = z_latent.shape
-        target_trans = z_latent.view(-1, Z).transpose(1, 0)  # [T,B,z]->[T*B,z]->[z,T*B]
+        T, B, Z = conv_output.shape
+        target_trans = conv_output.view(-1, Z).transpose(1, 0)  # [T,B,z]->[T*B,z]->[z,T*B]
         # Draw from base_labels according to the location of the corresponding
         # positive latent for contrast, using [T,B]; will give the location
         # within T*B.
@@ -223,36 +234,36 @@ class CPC(BaseUlAlgorithm):
     def state_dict(self):
         return dict(
             encoder=self.encoder.state_dict(),
-            prediction_rnn=self.prediction_rnn.state_dict(),
+            drnn_model=self.drnn_model.state_dict(),
             transforms=self.transforms.state_dict(),
             optimizer=self.optimizer.state_dict(),
         )
 
     def load_state_dict(self, state_dict):
         self.encoder.load_state_dict(state_dict["encoder"])
-        self.prediction_rnn.load_state_dict(state_dict["prediction_rnn"])
+        self.drnn_model.load_state_dict(state_dict["prediction_rnn"])
         self.transforms.load_state_dict(state_dict["transforms"])
         self.optimizer.load_state_dict(state_dict["optimizer"])
 
     def parameters(self):
         yield from self.encoder.parameters()
-        yield from self.prediction_rnn.parameters()
+        yield from self.drnn_model.parameters()
         yield from self.transforms.parameters()
 
     def named_parameters(self):
         """To allow filtering by name in weight decay."""
         yield from self.encoder.named_parameters()
-        yield from self.prediction_rnn.named_parameters()
+        yield from self.drnn_model.named_parameters()
         yield from self.transforms.named_parameters()
 
     def eval(self):
         self.encoder.eval()  # in case of batch norm
-        self.prediction_rnn.eval()
+        self.drnn_model.eval()
         self.transforms.eval()
 
     def train(self):
         self.encoder.train()
-        self.prediction_rnn.train()
+        self.drnn_model.train()
         self.transforms.train()
 
     def load_replay(self, pixel_control_buffer=None):

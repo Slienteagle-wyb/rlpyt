@@ -18,9 +18,9 @@ runs_per_setting = 1
 experiment_title = "atc_pretrain"
 
 # make a varent of runs
-keys = [('algo', 'delta_T'), ('runner', 'n_updates')]
-values = [[3, int(2e5)], ]
-dir_names = ['atc_0308_run1']
+keys = [('algo', 'delta_T'), ('runner', 'wandb_log_name')]
+values = [[3, 'atc_0627_mix_res_delta_3'], ]
+dir_names = ['atc_0627_run1']
 
 
 variant_levles = list()

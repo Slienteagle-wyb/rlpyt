@@ -6,15 +6,16 @@ config = dict(
         batch_T=32,  # batch_T = warm_up(16) + contrast_rollout(16)
         warmup_T=16,
         # learning_rate=2e-3,
-        rnn_size=256,  # dim of context
+        deter_dim=1024,  # dim of context
         latent_size=256,
+        hidden_sizes=512,
         clip_grad_norm=10.,
     ),
     encoder=dict(
-        use_fourth_layer=True,
-        skip_connections=True,
-        hidden_sizes=512,
-        kaiming_init=True,
+        res_depths=(64, 128, 256),
+        downsampling_strides=(3, 2, 2),
+        blocks_per_group=3,
+        expand_ratio=2
     ),
     optim=dict(
         optim_id='adamw',
@@ -30,13 +31,20 @@ config = dict(
         min_lr=1e-6,
         sched_slice=2,
         warmup_lr_init=1e-5,
-        warmup_epochs=100,
+        warmup_epochs=50,
         lr_k_decay=1.0,
         lr_cycle_decay=0.2,
         lr_cycle_limit=2,
     ),
+    rssm=dict(
+        hidden_sizes=512,
+        linear_dyna=True,
+        num_gru_layers=1,
+        gru_type='gru',
+        batch_norm=True
+    ),
     runner=dict(
-        n_epochs=int(1000),  # base_n_epoch=1000
+        n_epochs=int(500),  # base_n_epoch=1000
         log_interval_updates=int(1e3),
         wandb_log=False,
         wandb_log_name=None,
