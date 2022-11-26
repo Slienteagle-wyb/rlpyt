@@ -7,10 +7,9 @@ import torch.nn.functional as F
 
 class DRnnCell(nn.Module):
     def __init__(self, embed_dim, action_dim, deter_dim, latent_dim,
-                 device, num_gru_layers, gru_type, batch_norm,
+                 num_gru_layers, gru_type, batch_norm,
                  hidden_sizes, linear_dyna=True):
         super(DRnnCell, self).__init__()
-        self.device = device
         self.deter_dim = deter_dim
         norm = nn.LayerNorm if batch_norm else NoNorm
 
@@ -31,8 +30,8 @@ class DRnnCell(nn.Module):
 
         self.gru_cell = GRUCellStack(latent_dim, deter_dim, num_gru_layers, gru_type)
 
-    def init_state(self, batch_size):
-        return torch.zeros((batch_size, self.deter_dim), device=self.device)
+    def init_state(self, batch_size, device):
+        return torch.zeros((batch_size, self.deter_dim), device=device)
 
     def forward(self, embed, action, init_state):
         h_prev = self.h_proj(init_state)
@@ -53,14 +52,14 @@ class DRnnCell(nn.Module):
 
 class DRnnCore(nn.Module):
     def __init__(self, embed_dim, action_dim, deter_dim, latent_dim,
-                 device, num_gru_layers, gru_type, warmup_T, batch_norm,
+                 num_gru_layers, gru_type, warmup_T, batch_norm,
                  hidden_sizes, linear_dyna=True):
         super(DRnnCore, self).__init__()
         self.open_loop_cell = DRnnCell(embed_dim, action_dim, deter_dim, latent_dim,
-                                       device, num_gru_layers, gru_type, batch_norm,
+                                       num_gru_layers, gru_type, batch_norm,
                                        hidden_sizes, linear_dyna)
         self.closed_loop_cell = DRnnCell(embed_dim, action_dim, deter_dim, latent_dim,
-                                         device, num_gru_layers, gru_type, batch_norm,
+                                         num_gru_layers, gru_type, batch_norm,
                                          hidden_sizes, linear_dyna)
         self.warmup_T = warmup_T
         self.deter_dim = deter_dim
@@ -70,14 +69,14 @@ class DRnnCore(nn.Module):
         h_prev = in_states
         states_h = []
         for i in range(self.warmup_T):
-            h_prev = self.closed_loop_cell.forward(embeds[i].squeeze(), actions[i].squeeze(), h_prev)
+            h_prev = self.closed_loop_cell.forward(embeds[i], actions[i], h_prev)
             states_h.append(h_prev)
         for i in range(self.warmup_T, T):
             if not forward_pred:
-                h_prev = self.closed_loop_cell.forward(embeds[i].squeeze(), actions[i].squeeze(), h_prev)
+                h_prev = self.closed_loop_cell.forward(embeds[i], actions[i], h_prev)
                 states_h.append(h_prev)
             else:
-                h_prev = self.open_loop_cell.forward_pred(actions[i].squeeze(), in_states)
+                h_prev = self.open_loop_cell.forward_pred(actions[i], in_states)
         states_h = torch.stack(states_h)
         return states_h
 
@@ -91,8 +90,8 @@ class DRnnCore(nn.Module):
         states_h = torch.stack(states_h)
         return states_h
 
-    def init_state(self, batch_size):
-        return self.closed_loop_cell.init_state(batch_size)
+    def init_state(self, batch_size, device):
+        return self.closed_loop_cell.init_state(batch_size, device)
 
 
 class NoNorm(nn.Module):

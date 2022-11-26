@@ -37,7 +37,7 @@ class OfflineDatasets(Dataset):
         self.current_line = None
         self.next_line = None
         self.normalized_img = normalized_img
-        self.extract_data()
+        self.extract_img()
 
     # extract and tensorfy the data
     def extract_data(self):
@@ -68,9 +68,13 @@ class OfflineDatasets(Dataset):
 
                 trans, rotation = self.rotation_trans(self.current_line, self.next_line)
                 velocity = action[7:11]  # extract the velocity from labels
-                attitude_quad = action[:4]
-                attitude_matrix = self.quad_to_matrix(attitude_quad)
                 direction_label = self.extract_direction(velocity)
+                velocity = self.normalize_v(velocity)
+                attitude_quad = action[:4]
+                # attitude_matrix = self.quad_to_matrix(attitude_quad)
+                attitude_matrix = R.from_quat(attitude_quad).as_matrix()
+                attitude_matrix = attitude_matrix.reshape(-1)
+
                 samples = self.offlinesamples(observation=image,
                                               translation=np.array(trans, dtype=np.float32),
                                               rotation=np.array(rotation, dtype=np.float32),

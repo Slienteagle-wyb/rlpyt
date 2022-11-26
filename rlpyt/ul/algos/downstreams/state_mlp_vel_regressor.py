@@ -3,7 +3,8 @@ import numpy as np
 import torch
 from collections import namedtuple
 import wandb
-from rlpyt.ul.models.ul.encoders import ResEncoderModel, Res18Encoder, FusResEncoderModel, DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.encoders import ResEncoderModel, Res18Encoder, DmlabEncoderModelNorm
+from rlpyt.ul.models.ul.drnn import DRnnCore
 from rlpyt.utils.quick_args import save__init__args
 from rlpyt.utils.buffer import buffer_to
 from rlpyt.utils.logging import logger
@@ -29,13 +30,13 @@ class StateVelRegressBc(BaseUlAlgorithm):
             clip_grad_norm=10.,
             validation_split=0.0,  # used for calculating num of epoch
             with_validation=True,
-            latent_size=256,
+            latent_size=64,
             hidden_sizes=512,
             num_stacked_input=3,
             mlp_hidden_layers=None,
             action_dim=4,
             attitude_dim=9,
-            state_latent_dim=64,
+            state_latent_dim=16,
             TrainReplayCls=OfflineUlReplayBuffer,
             ValReplayCls=OfflineUlReplayBuffer,
             EncoderCls=ResEncoderModel,
@@ -72,21 +73,28 @@ class StateVelRegressBc(BaseUlAlgorithm):
         #     latent_size=self.latent_size,
         #     hidden_sizes=self.hidden_sizes
         # )
-        # used as a byol style projector
-        # self.state_projector = ByolMlpModel(
-        #     input_dim=self.attitude_dim,
-        #     latent_size=self.state_latent_dim,
-        #     hidden_size=self.latent_size
+        # self.drnn_model = DRnnCore(
+        #     latent_dim=self.latent_size,
+        #     embed_dim=self.latent_size,
+        #     action_dim=8,
+        #     deter_dim=1024,
+        #     device=self.device,
+        #     warmup_T=0,
+        #     hidden_sizes=512,
+        #     linear_dyna=True,
+        #     num_gru_layers=1,
+        #     gru_type='gru',
+        #     batch_norm=True
         # )
         # used as a linear projector
-        self.state_projector = torch.nn.Linear(
-            in_features=self.attitude_dim,
-            out_features=self.state_latent_dim,
-            bias=False
-        )
+        # self.state_projector = torch.nn.Linear(
+        #     in_features=self.attitude_dim,
+        #     out_features=self.state_latent_dim,
+        #     bias=False
+        # )
 
         self.policy = self.MlpCls(
-            input_size=self.encoder.output_size + self.state_latent_dim,
+            input_size=self.encoder.output_size,
             # input_size=self.latent_size + self.state_latent_dim,
             hidden_sizes=self.mlp_hidden_layers,
             output_size=self.action_dim,
@@ -105,7 +113,8 @@ class StateVelRegressBc(BaseUlAlgorithm):
         else:
             logger.log('models has not loaded any pretrained model yet!')
         self.encoder.to(self.device)
-        self.state_projector.to(self.device)
+        # self.state_projector.to(self.device)
+        # self.drnn_model.to(self.device)
         self.policy.to(self.device)
 
         self.optim_initialize(epochs)
@@ -143,36 +152,23 @@ class StateVelRegressBc(BaseUlAlgorithm):
 
         length, batch_size, f, c, h, w = obs.shape
         obs = obs.view(length, batch_size * f, c, h, w)
-        assert length % self.num_stacked_input == 0
-        length = int(length // self.num_stacked_input)
-        c = c * self.num_stacked_input
-        # return a tuple of tensor shape (split_size, batch*f, c, h, w)
-        if self.num_stacked_input > 1:
-            splited_obs_list = torch.split(obs, split_size_or_sections=self.num_stacked_input, dim=0)
-            stacked_obs_list = []
-            for splited_obs in splited_obs_list:
-                # return a tuple of tensor shape (1, batch*f, c, h, w)
-                stacked_obs = torch.cat(torch.split(splited_obs, split_size_or_sections=1, dim=0), dim=2)
-                stacked_obs_list.append(stacked_obs.squeeze())
-            obs = torch.stack(stacked_obs_list, dim=0)
 
-        vel_states = samples.velocities[::self.num_stacked_input]
-        attitude_states = samples.attitudes[::self.num_stacked_input]
+        vel_states = samples.velocities
+        attitude_states = samples.attitudes
 
         obs, vel_states, attitude_states = buffer_to((obs, vel_states, attitude_states), device=self.device)
-        # feat, conv_out = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
-        with torch.no_grad():
-            feat, conv_out = self.encoder(obs.reshape(length * batch_size * f, c, h, w))
-        #     # spatial_embed, temporal_embed, _ = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
-        #     # conv_out = conv_out.detach_()
-        state_embedding = self.state_projector(attitude_states)
+        # proj_feat, conv_out = self.encoder(obs.reshape(length*batch_size*f, c, h, w))
+        # with torch.no_grad():
+        #     conv_out = self.encoder.conv(obs.reshape(length * batch_size * f, c, h, w))
+        conv_out = self.encoder.conv(obs.reshape(length * batch_size * f, c, h, w))
+        # state_embedding = self.state_projector(attitude_states)
         # policy_input = torch.cat((conv_out.reshape(length * batch_size * f, -1),
         #                           state_embedding.reshape(length * batch_size, -1)), dim=-1)
-        policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
-                                  state_embedding.reshape(length*batch_size, -1)), dim=-1)
-        # policy_input = torch.cat((temporal_embed.detach().reshape(length*batch_size*f, -1),
+        # policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
         #                           state_embedding.reshape(length*batch_size, -1)), dim=-1)
-        pred_vel = self.policy(policy_input)
+        # policy_input = torch.cat((conv_out.detach().reshape(length*batch_size*f, -1),
+        #                           state_embedding.reshape(length*batch_size, -1)), dim=-1)
+        pred_vel = self.policy(conv_out.reshape(length * batch_size * f, -1))
         pred_loss = self.pred_loss_fn(pred_vel, vel_states.reshape(length*batch_size, -1))
         # calculate validation metrics
         gt_vels = de_normalize_v(vel_states.reshape(length*batch_size, -1).detach().cpu().numpy())
@@ -201,7 +197,7 @@ class StateVelRegressBc(BaseUlAlgorithm):
     def state_dict(self):
         return dict(
             encoder=self.encoder.state_dict(),
-            state_projector=self.state_projector.state_dict(),
+            # state_projector=self.state_projector.state_dict(),
             mlp_head=self.policy.state_dict()
         )
 
@@ -211,22 +207,22 @@ class StateVelRegressBc(BaseUlAlgorithm):
 
     def eval(self):
         self.encoder.eval()  # in case of batch norm
-        self.state_projector.eval()
+        # self.state_projector.eval()
         self.policy.eval()
 
     def train(self):
         self.encoder.train()
-        self.state_projector.train()
+        # self.state_projector.train()
         self.policy.train()
 
     def parameters(self):
         yield from self.encoder.parameters()
-        yield from self.state_projector.parameters()
+        # yield from self.state_projector.parameters()
         yield from self.policy.parameters()
 
     def named_parameters(self):
         yield from self.encoder.named_parameters()
-        yield from self.state_projector.named_parameters()
+        # yield from self.state_projector.named_parameters()
         yield from self.policy.named_parameters()
 
     def load_replay(self, with_validation=True):

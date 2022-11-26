@@ -240,7 +240,7 @@ class ResEncoderModel(torch.nn.Module):
                  ):
         super(ResEncoderModel, self).__init__()
         self.num_stacked_input = num_stacked_input
-        c, h, w = image_shape
+        c, h, w = tuple(image_shape)
         c = c * num_stacked_input
         self.conv = ResnetCNN(input_channels=c,
                               depths=res_depths,

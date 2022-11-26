@@ -60,7 +60,7 @@ def create_optimizer(model,
                      skip_list=None,
                      momentum=0.9,
                      eps=1e-8,
-                     betas=None,
+                     betas=(0.9, 0.99),
                      # set the model list need no weight deacy
                      filter_bias_and_bn=True,
                      get_num_layer=None,
